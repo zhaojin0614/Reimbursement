@@ -117,11 +117,12 @@ fun BillCard(
                 )
             }
 
-            // Row 2: Time
+            // Row 2: Time（靠右，与上方金额右对齐）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 2.dp),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
