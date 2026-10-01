@@ -3,6 +3,9 @@
 package com.zhaojin.reimbursement.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,8 +21,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,19 +47,33 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
+import com.zhaojin.reimbursement.utils.BillPhotoStore
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import com.zhaojin.reimbursement.ui.components.SoftButton
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.isDarkTheme
@@ -86,19 +105,58 @@ private const val PLATE_MAX_LEN = 8
 @Composable
 fun AddBillScreen(
     onBack: () -> Unit,
-    onAdd: (BillEntity) -> Unit
+    onAdd: (BillEntity, List<File>) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("") }
     var driver by remember { mutableStateOf("") }
     var plate by remember { mutableStateOf("") }
     var showPlateBoard by remember { mutableStateOf(false) }
+    // 暂存照片（pending 文件，保存账单时统一转正压缩入库；可选）
+    val stagedPhotos = remember { mutableStateListOf<File>() }
+    var showPhotoSourceDialog by remember { mutableStateOf(false) }
+    var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
     val today = remember { LocalDate.now() }
     var selectedDate by remember { mutableStateOf(today) }
     var showDatePicker by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+    val ioScope = remember { CoroutineScope(Dispatchers.IO) }
 
-    BackHandler(enabled = true) { onBack() }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { ok ->
+        val file = pendingCaptureFile
+        pendingCaptureFile = null
+        if (file != null) {
+            if (ok) stagedPhotos.add(file) else BillPhotoStore.discard(file)
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(9)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            ioScope.launch {
+                uris.forEach { uri ->
+                    BillPhotoStore.stageFromUri(context, uri)?.let { file ->
+                        withContext(Dispatchers.Main) { stagedPhotos.add(file) }
+                    }
+                }
+            }
+        }
+    }
+
+    // 离开页面时丢弃暂存照片（pending 文件不留在托管目录）
+    fun discardStaged() {
+        stagedPhotos.forEach { BillPhotoStore.discard(it) }
+        stagedPhotos.clear()
+        pendingCaptureFile?.let { BillPhotoStore.discard(it) }
+    }
+
+    BackHandler(enabled = true) {
+        discardStaged()
+        onBack()
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -246,33 +304,59 @@ fun AddBillScreen(
                 )
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 第 6 行：账单图片（可选，保存时随账单一并入库）
+            StagedPhotosRow(
+                photos = stagedPhotos,
+                onAddClick = { showPhotoSourceDialog = true },
+                onRemove = { file ->
+                    BillPhotoStore.discard(file)
+                    stagedPhotos.remove(file)
+                }
+            )
+
             Spacer(modifier = Modifier.height(24.dp))
 
             SoftButton(
                 text = "添加",
                 onClick = {
-                    val amt = amountText.toDoubleOrNull() ?: 0.0
-                    if (title.isNotBlank() && amt > 0) {
-                        val ts = if (selectedDate == today) {
-                            System.currentTimeMillis()
-                        } else {
-                            selectedDate
-                                .atTime(12, 0)
-                                .atZone(ZoneId.systemDefault())
-                                .toInstant()
-                                .toEpochMilli()
-                        }
-                        onAdd(
-                            BillEntity(
-                                amount = amt,
-                                title = title.trim(),
-                                driver = driver.trim(),
-                                plate = plate,
-                                isIncome = false,
-                                timestamp = ts
-                            )
-                        )
+                    // 除图片可选外其余必填
+                    val missing = when {
+                        driver.isBlank() -> "请填写驾驶员"
+                        plate.isBlank() -> "请填写车牌号"
+                        title.isBlank() -> "请填写内容"
+                        else -> null
                     }
+                    if (missing != null) {
+                        Toast.makeText(context, missing, Toast.LENGTH_SHORT).show()
+                        return@SoftButton
+                    }
+                    val amt = amountText.toDoubleOrNull()
+                    if (amt == null || amt <= 0) {
+                        Toast.makeText(context, "请填写有效金额", Toast.LENGTH_SHORT).show()
+                        return@SoftButton
+                    }
+                    val ts = if (selectedDate == today) {
+                        System.currentTimeMillis()
+                    } else {
+                        selectedDate
+                            .atTime(12, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli()
+                    }
+                    onAdd(
+                        BillEntity(
+                            amount = amt,
+                            title = title.trim(),
+                            driver = driver.trim(),
+                            plate = plate.trim(),
+                            isIncome = false,
+                            timestamp = ts
+                        ),
+                        stagedPhotos.toList()
+                    )
                 },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -327,6 +411,31 @@ fun AddBillScreen(
         ) {
             DatePicker(state = datePickerState)
         }
+    }
+
+    // 图片来源弹窗（拍照 / 相册多选；照片为可选项）
+    if (showPhotoSourceDialog) {
+        GlassCompactDialog(
+            onDismissRequest = { showPhotoSourceDialog = false },
+            title = "添加账单图片",
+            text = { Text("为本账单添加照片，可一次选多张（可选）。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPhotoSourceDialog = false
+                    val file = BillPhotoStore.newPendingFile(context)
+                    pendingCaptureFile = file
+                    cameraLauncher.launch(BillPhotoStore.uriFor(context, file))
+                }) { Text("拍照") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPhotoSourceDialog = false
+                    galleryLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                }) { Text("从相册选择") }
+            }
+        )
     }
 }
 
@@ -494,4 +603,76 @@ private fun KeyboardActionKey(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/** 暂存照片行：已选小图（可移除）+ 添加入口；图片为可选项 */
+@Composable
+private fun StagedPhotosRow(
+    photos: SnapshotStateList<File>,
+    onAddClick: () -> Unit,
+    onRemove: (File) -> Unit
+) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        photos.forEach { file ->
+            var thumb by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+            LaunchedEffect(file.absolutePath) {
+                thumb = BillPhotoStore.loadThumbnail(context, file.name, 120)
+            }
+            Box(modifier = Modifier.size(56.dp)) {
+                val bmp = thumb
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = "暂存照片",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                }
+                // 移除角标
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(18.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                        .clickable { onRemove(file) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("×", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        // 添加图片入口（可选）
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .border(glassBorder(), RoundedCornerShape(8.dp))
+                .clickable(onClick = onAddClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = "图片（可选）",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
 }

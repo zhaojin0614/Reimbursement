@@ -261,8 +261,8 @@ fun BillScreen(
     if (showAddScreen) {
         AddBillScreen(
             onBack = { showAddScreen = false },
-            onAdd = { bill ->
-                viewModel.addBill(bill)
+            onAdd = { bill, stagedPhotos ->
+                viewModel.addBill(bill, stagedPhotos)
                 showAddScreen = false
             }
         )
@@ -616,9 +616,14 @@ fun BillScreen(
             )
         }
 
+        var editDriver by remember(bill.id) { mutableStateOf(bill.driver) }
+        var editPlate by remember(bill.id) { mutableStateOf(bill.plate) }
+
         val titleChanged = editTitle.isNotBlank() && editTitle.trim() != bill.title
         val amountChanged = (editAmount.toDoubleOrNull() ?: bill.amount) != bill.amount
-        val hasChanges = titleChanged || amountChanged
+        val driverChanged = editDriver.trim() != bill.driver
+        val plateChanged = editPlate.trim() != bill.plate
+        val hasChanges = titleChanged || amountChanged || driverChanged || plateChanged
 
         GlassCompactDialog(
             onDismissRequest = {
@@ -632,7 +637,7 @@ fun BillScreen(
                         value = editTitle,
                         colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
                         onValueChange = { editTitle = it },
-                        label = { Text("标题") },
+                        label = { Text("内容") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -654,16 +659,36 @@ fun BillScreen(
                             fontWeight = FontWeight.Bold
                         )
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = editDriver,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
+                        onValueChange = { editDriver = it },
+                        label = { Text("驾驶员") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = editPlate,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
+                        onValueChange = { editPlate = it },
+                        label = { Text("车牌号") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (titleChanged) viewModel.updateTitle(bill.id, editTitle.trim())
-                        if (amountChanged) {
-                            editAmount.toDoubleOrNull()?.let { viewModel.updateAmount(bill.id, it) }
-                        }
-                        showEditDialog = false
+                            if (amountChanged) {
+                                editAmount.toDoubleOrNull()?.let { viewModel.updateAmount(bill.id, it) }
+                            }
+                            if (driverChanged || plateChanged) {
+                                viewModel.updateDriverPlate(bill.id, editDriver.trim(), editPlate.trim())
+                            }
+                            showEditDialog = false
                         billToEdit = null
                     },
                     enabled = hasChanges

@@ -90,6 +90,10 @@ interface BillDao {
     @Query("UPDATE bills SET amount = :amount WHERE id = :id")
     suspend fun updateAmount(id: Long, amount: Double)
 
+    /** 修改驾驶员与车牌号 */
+    @Query("UPDATE bills SET driver = :driver, plate = :plate WHERE id = :id")
+    suspend fun updateDriverPlate(id: Long, driver: String, plate: String)
+
     @Query("DELETE FROM bills WHERE id = :id")
     suspend fun deleteById(id: Long)
 

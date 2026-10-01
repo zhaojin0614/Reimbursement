@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -86,22 +89,51 @@ fun BillCard(
 
         Spacer(modifier = Modifier.width(10.dp))
 
-        // 单行内容：标题居左，金额居右（日期由分组标题表达，行内不再重复）
-        Text(
-            text = bill.title,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "¥${String.format("%.2f", bill.amount)}",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = ExpenseRed
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            // 第 1 行：内容居左，金额居右（日期由分组标题表达，行内不再重复）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = bill.title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "¥" + String.format("%.2f", bill.amount),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ExpenseRed
+                )
+            }
+            // 第 2 行：驾驶员居左，车牌号居右（历史账单两者皆空则不显示）
+            if (bill.driver.isNotBlank() || bill.plate.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = bill.driver,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Text(
+                        text = bill.plate,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
     }
 }
 

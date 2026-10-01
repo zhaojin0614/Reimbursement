@@ -225,17 +225,51 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addBill(bill: BillEntity) {
+    /**
+     * 添加账单（含添加页暂存的照片）：入库拿到账单 id 后，把暂存 pending
+     * 文件逐张转正压缩并写入图片表。暂存文件转正失败会被静默丢弃。
+     */
+    fun addBill(bill: BillEntity, stagedPhotos: List<java.io.File> = emptyList()) {
         viewModelScope.launch(Dispatchers.IO) {
-            billDao.insert(bill)
+            val billId = billDao.insert(bill)
             val extra = buildString {
                 if (bill.driver.isNotBlank()) append(" 驾驶员=").append(bill.driver)
                 if (bill.plate.isNotBlank()) append(" 车牌=").append(bill.plate)
             }
             AppLogger.log(
                 "账单",
-                "添加账单 「${bill.title}」 ¥${bill.amount}$extra " +
-                    "日期=${java.time.Instant.ofEpochMilli(bill.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}"
+                "添加账单 #$billId 「${bill.title}」 ¥${bill.amount}$extra " +
+                    "日期=${java.time.Instant.ofEpochMilli(bill.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}" +
+                    if (stagedPhotos.isNotEmpty()) " 暂存图片=${stagedPhotos.size}张" else ""
+            )
+            if (billId > 0) {
+                stagedPhotos.forEach { file ->
+                    val name = BillPhotoStore.commitPending(getApplication(), file)
+                    if (name != null) {
+                        photoDao.insert(
+                            BillPhotoEntity(
+                                billId = billId, fileName = name,
+                                createdAt = System.currentTimeMillis()
+                            )
+                        )
+                        AppLogger.log("图片", "添加图片 账单#$billId 来源=添加页 文件=$name")
+                    } else {
+                        BillPhotoStore.discard(file)
+                        AppLogger.log("图片", "暂存图片转正失败已丢弃 账单#$billId")
+                    }
+                }
+            }
+        }
+    }
+
+    /** 修改驾驶员与车牌号 */
+    fun updateDriverPlate(id: Long, driver: String, plate: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val old = billDao.getBillById(id)
+            billDao.updateDriverPlate(id, driver, plate)
+            AppLogger.log(
+                "账单",
+                "修改账单 #$id 驾驶员 「${old?.driver}」→「$driver」 车牌 「${old?.plate}」→「$plate」"
             )
         }
     }

@@ -66,6 +66,21 @@ object BillPhotoStore {
             name
         }
 
+    /**
+     * 相册图片暂存：原始字节复制进 pending 文件（添加账单页先暂存多张，
+     * 账单保存成功后由 [commitPending] 统一转正并压缩）。失败返回 null。
+     */
+    suspend fun stageFromUri(context: Context, uri: Uri): File? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val pending = newPendingFile(context)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    pending.outputStream().use { output -> input.copyTo(output) }
+                } ?: return@runCatching null
+                pending
+            }.getOrNull()
+        }
+
     /** 拍照取消：丢弃 pending 文件 */
     fun discard(pending: File) {
         pending.delete()
