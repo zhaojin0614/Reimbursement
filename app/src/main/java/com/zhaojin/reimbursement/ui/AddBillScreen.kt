@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ClipboardManager
 import android.widget.Toast
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
@@ -97,6 +99,27 @@ private val PLATE_CHARS =
 private const val PLATE_MAX_LEN = 8
 
 /**
+ * 剪贴板文本 → 车牌可用字符：去空格与常见分隔符、全角转半角、
+ * 字母统一大写，仅保留汉字（省份简称/学挂警港澳等）与字母数字，上限 8 位。
+ */
+private fun sanitizePlateInput(raw: String): String {
+    val cleaned = raw.replace(Regex("[\\s·.\\-—_\\u3000\\u00A0]"), "")
+    val sb = StringBuilder()
+    for (ch in cleaned) {
+        if (sb.length >= PLATE_MAX_LEN) break
+        // 全角（Ａ-Ｚ、０-９等）转半角后再判断
+        val c = if (ch.code in 0xFF01..0xFF5E) (ch.code - 0xFEE0).toChar() else ch
+        when {
+            c.code in 0x3400..0x9FFF -> sb.append(c) // 汉字
+            c in 'A'..'Z' -> sb.append(c)
+            c in 'a'..'z' -> sb.append(c.uppercaseChar())
+            c in '0'..'9' -> sb.append(c)
+        }
+    }
+    return sb.toString()
+}
+
+/**
  * 添加账单独立页面。五行：日期 → 驾驶员 → 车牌号（自绘车牌键盘，
  * 不调系统输入法）→ 内容 → 金额。顶栏返回即取消，键盘/面板弹出时
  * 表单可滚动不被遮挡。
@@ -122,6 +145,19 @@ fun AddBillScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
     val ioScope = remember { CoroutineScope(Dispatchers.IO) }
+
+    // 长按车牌行粘贴：读系统剪贴板，清洗为车牌字符后整体填入
+    fun pastePlateFromClipboard() {
+        val cm = context.getSystemService(ClipboardManager::class.java)
+        val text = cm?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+        val cleaned = sanitizePlateInput(text)
+        if (cleaned.isEmpty()) {
+            Toast.makeText(context, "剪贴板中没有可用的车牌内容", Toast.LENGTH_SHORT).show()
+        } else {
+            plate = cleaned
+            Toast.makeText(context, "已粘贴车牌：$cleaned", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -249,14 +285,15 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 3 行：车牌号（点击弹出自绘车牌键盘，不调系统输入法）
+            // 第 3 行：车牌号（点击弹出自绘车牌键盘，长按粘贴，不调系统输入法）
             PlateField(
                 plate = plate,
                 expanded = showPlateBoard,
                 onClick = {
                     showPlateBoard = !showPlateBoard
                     if (showPlateBoard) keyboard?.hide()
-                }
+                },
+                onLongPress = { pastePlateFromClipboard() }
             )
 
             if (showPlateBoard) {
@@ -437,18 +474,19 @@ fun AddBillScreen(
     }
 }
 
-/** 车牌号输入行：仿实体车牌的展示框，点击展开/收起自绘键盘 */
+/** 车牌号输入行：仿实体车牌的展示框，点击展开/收起自绘键盘，长按粘贴剪贴板内容 */
 @Composable
 private fun PlateField(
     plate: String,
     expanded: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongPress: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -470,8 +508,8 @@ private fun PlateField(
         ) {
             if (plate.isEmpty()) {
                 Text(
-                    text = "点击输入",
-                    fontSize = 14.sp,
+                    text = "点击输入 · 长按粘贴",
+                    fontSize = 13.sp,
                     color = Color.White.copy(alpha = 0.5f)
                 )
             } else {
