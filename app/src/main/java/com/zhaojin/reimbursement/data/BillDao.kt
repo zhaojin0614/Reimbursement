@@ -31,6 +31,13 @@ interface BillDao {
     @Query("SELECT * FROM bills")
     suspend fun getAllBillsOnce(): List<BillEntity>
 
+    @Query("SELECT * FROM bills WHERE id = :id")
+    suspend fun getBillByIdOnce(id: Long): BillEntity?
+
+    /** 更新账单图片文件名；传 null 清除图片（图标恢复标题首字） */
+    @Query("UPDATE bills SET photoPath = :photoPath WHERE id = :id")
+    suspend fun updatePhoto(id: Long, photoPath: String?)
+
     /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤与条数分页 */
     @Query(
         """

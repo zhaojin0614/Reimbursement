@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 账单图片：拍照 pending 临时文件与正式图片都在应用私有 bill_photos/ 下 -->
+    <files-path name="bill_photos" path="bill_photos/" />
+</paths>

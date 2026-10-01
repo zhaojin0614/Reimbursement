@@ -17,5 +17,11 @@ data class BillEntity(
     val amount: Double,
     val title: String,
     val isIncome: Boolean = false,
-    val timestamp: Long
+    val timestamp: Long,
+    /**
+     * 账单图片文件名（位于应用私有目录 bill_photos/ 下），null = 无图片。
+     * 只存文件名不存路径：目录归属固定，换设备/迁移只需拼目录。
+     * 有图片时账单图标显示图片缩略图，点击可查看原图。
+     */
+    val photoPath: String? = null
 )

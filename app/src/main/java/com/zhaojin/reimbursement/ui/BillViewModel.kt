@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.zhaojin.reimbursement.data.AppDatabase
 import com.zhaojin.reimbursement.data.BillBackupManager
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -206,7 +207,12 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _selectedIds.value.toList()
         if (ids.isNotEmpty()) {
             viewModelScope.launch(Dispatchers.IO) {
-                ids.forEach { billDao.deleteById(it) }
+                ids.forEach { id ->
+                    billDao.getBillByIdOnce(id)?.photoPath?.let {
+                        BillPhotoStore.delete(getApplication(), it)
+                    }
+                    billDao.deleteById(id)
+                }
             }
             _selectedIds.value = emptySet()
         }
@@ -231,8 +237,26 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * 设置/替换账单图片；photoName=null 表示删除图片。
+     * 替换时同步删除旧图片文件，防止孤儿文件。
+     */
+    fun setBillPhoto(id: Long, photoName: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val oldName = billDao.getBillByIdOnce(id)?.photoPath
+            billDao.updatePhoto(id, photoName)
+            if (oldName != null && oldName != photoName) {
+                BillPhotoStore.delete(getApplication(), oldName)
+            }
+        }
+    }
+
     fun deleteBill(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
+            // 先取图片名并删文件，再删账单记录
+            billDao.getBillByIdOnce(id)?.photoPath?.let {
+                BillPhotoStore.delete(getApplication(), it)
+            }
             billDao.deleteById(id)
         }
     }
