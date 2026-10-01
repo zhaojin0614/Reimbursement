@@ -61,32 +61,6 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * 从备份文件导入。支持图片内嵌的 xlsx、旧版 zip 备份包与捕账格式。
-     * overwrite=false 合并（账单指纹去重，已存在的不重复导入图片）；
-     * true 恢复覆盖（清空账单、图片记录和图片文件后重建）。
-     */
-    fun importBackup(uri: Uri, overwrite: Boolean) {
-        if (_backupBusy.value) return
-        viewModelScope.launch {
-            _backupBusy.value = true
-            try {
-                val context = getApplication<Application>()
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw IllegalStateException("无法读取所选文件")
-                val backup = BillBackupManager.parseBackup(bytes)
-                val result = BillBackupManager.importBackup(
-                    context, billDao, photoDao, backup.workbook, backup.images, backup.embedded, overwrite
-                )
-                _backupMessage.value = (if (overwrite) "恢复完成：" else "导入完成：") + result.summary()
-            } catch (e: Exception) {
-                _backupMessage.value = (if (overwrite) "恢复失败：" else "导入失败：") + (e.message ?: "未知错误")
-            } finally {
-                _backupBusy.value = false
-            }
-        }
-    }
-
     fun consumeBackupMessage() {
         _backupMessage.value = null
     }
