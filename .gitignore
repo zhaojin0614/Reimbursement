@@ -1,0 +1,15 @@
+# Built artifacts
+build/
+app/build/
+.gradle/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Misc
+captures/
+.externalNativeBuild/
+.cxx/
