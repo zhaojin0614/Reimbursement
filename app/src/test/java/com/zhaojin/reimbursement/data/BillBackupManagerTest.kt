@@ -98,34 +98,52 @@ class BillBackupManagerTest {
     }
 
     @Test
-    fun `导出版式 - 列宽行高与表头底色`() {
+    fun `导出版式 - 列宽行高表头底色与合计行`() {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
 
-        // 固定列宽：日期时间 20 / 标题 40 / 金额 10（min/max 为 1 基）
+        // 固定列宽：日期时间 20 / 标题 40 / 金额 20（min/max 为 1 基）；图片列固定 200
         assertTrue(sheet1.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="2" max="2" width="40" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="3" max="3" width="10" customWidth="1"/>"""))
-        // 支出表（按时间排序）：行1=美团(1:2竖图→显示宽40)、行2=京东(方图80+2:1横图160)
-        // 图片列取该列最大显示宽：D 列 max(40,80)=80→10.71，E 列 160→22.14
-        assertTrue(sheet1.contains("""<col min="4" max="4" width="10.71" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="5" max="5" width="22.14" customWidth="1"/>"""))
-        // 有照片的行高 80px → 60 磅（表头占第 1 行，数据行 2、3）
-        assertTrue(sheet1.contains("""<row r="2" ht="60" customHeight="1">"""))
-        assertTrue(sheet1.contains("""<row r="3" ht="60" customHeight="1">"""))
+        assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="4" max="4" width="200" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="5" max="5" width="200" customWidth="1"/>"""))
+        // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3）
+        assertTrue(sheet1.contains("""<row r="2" ht="65" customHeight="1">"""))
+        assertTrue(sheet1.contains("""<row r="3" ht="65" customHeight="1">"""))
         // 表头单元格套浅灰底样式 s="1"，数据单元格不带
         assertTrue(sheet1.contains("""<c r="A1" s="1" t="inlineStr">"""))
         assertTrue(!sheet1.contains("""<c r="A2" s="1"""))
-        // styles.xml 含浅灰填充与第二个 cellXf
+        // 金额列为货币格式样式 s="2"（¥ 两位小数）
+        assertTrue(sheet1.contains("""<c r="C2" s="2"><v>25.6</v></c>"""))
+        // 合计行在最后一行数据之下：B 列「总金额：」s=3，C 列数值 s=4（25.6+30.38）
+        assertTrue(sheet1.contains("""<row r="4">"""))
+        assertTrue(sheet1.contains("""<c r="B4" s="3" t="inlineStr">"""))
+        assertTrue(sheet1.contains("总金额："))
+        assertTrue(sheet1.contains("""<c r="C4" s="4"><v>55.98</v></c>"""))
+        // 样式表：货币 numFmt、红字、黄底
         val styles = unzipEntry(bytes, "xl/styles.xml")
-        assertTrue(styles.contains("FFF2F2F2"))
-        assertTrue(styles.contains("""<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>"""))
+        assertTrue(styles.contains("""numFmtId="164" formatCode="&quot;¥&quot;#,##0.00""""))
+        assertTrue(styles.contains("FFFF0000"))
+        assertTrue(styles.contains("FFFFFF00"))
 
-        // 收入表无照片：无图片列宽、无行高，表头仍灰底
+        // 收入表：无照片无 200 列宽；数据行也 65；合计行 8500
         val sheet2 = unzipEntry(bytes, "xl/worksheets/sheet2.xml")
         assertTrue(sheet2.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
-        assertTrue(!sheet2.contains("ht="))
-        assertTrue(!sheet2.contains("<drawing"))
+        assertTrue(!sheet2.contains("""width="200""""))
+        assertTrue(sheet2.contains("""<row r="2" ht="65" customHeight="1">"""))
+        assertTrue(sheet2.contains("""<c r="B3" s="3" t="inlineStr">"""))
+        assertTrue(sheet2.contains("""<c r="C3" s="4"><v>8500</v></c>"""))
+    }
+
+    @Test
+    fun `解析 - 跳过合计行不误当账单或坏行`() {
+        val backup = BillBackupManager.parseBackup(
+            BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
+        )
+        assertEquals(3, backup.workbook.bills.size)
+        assertEquals(0, backup.workbook.badRows)
+        assertTrue(backup.workbook.bills.none { it.title.contains("总金额") })
     }
 
     @Test

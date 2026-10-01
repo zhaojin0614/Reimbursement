@@ -26,7 +26,23 @@ data class MiniSheet(
     /** 行高（磅，0 基行号 → 高度），仅写出的行带 customHeight */
     val rowHeights: Map<Int, Double> = emptyMap(),
     /** 表头行（首行）填充浅灰背景 */
-    val headerFill: Boolean = false
+    val headerFill: Boolean = false,
+    /** 数字列格式（0 基列号 → OOXML formatCode，如 ¥ 货币两位小数） */
+    val colFormats: Map<Int, String> = emptyMap(),
+    /** 合计行：最后一行数据之下，标签红字黄底、数值红字黄底+货币格式 */
+    val total: MiniTotal? = null
+)
+
+/**
+ * 合计行规格：[label] 写在 [labelCol]（如「总金额：」），[value] 写在
+ * [valueCol]，按 [formatCode] 显示；两个单元格均为红色字体 + 黄色背景。
+ */
+data class MiniTotal(
+    val label: String,
+    val labelCol: Int,
+    val valueCol: Int,
+    val value: Double,
+    val formatCode: String = "\"¥\"#,##0.00"
 )
 
 /**
@@ -72,19 +88,26 @@ object MiniXlsx {
     // ------------------------------------------------------------------
 
     fun write(sheets: List<MiniSheet>): ByteArray {
+        // 收集全部格式代码 → numFmtId（从 164 起，Excel 自定义格式惯例起点）
+        val fmtList = LinkedHashSet<String>().apply {
+            sheets.forEach { s ->
+                addAll(s.colFormats.values)
+                s.total?.let { add(it.formatCode) }
+            }
+        }.toList()
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             zip.putEntryAndWrite("[Content_Types].xml", contentTypesXml(sheets))
             zip.putEntryAndWrite("_rels/.rels", ROOT_RELS)
             zip.putEntryAndWrite("xl/workbook.xml", workbookXml(sheets))
             zip.putEntryAndWrite("xl/_rels/workbook.xml.rels", workbookRelsXml(sheets.size))
-            zip.putEntryAndWrite("xl/styles.xml", STYLES_XML)
+            zip.putEntryAndWrite("xl/styles.xml", stylesXml(fmtList))
             var mediaSeq = 0 // 全局媒体编号 xl/media/image1..N
             sheets.forEachIndexed { i, sheet ->
                 val hasImages = sheet.images.isNotEmpty()
                 zip.putEntryAndWrite(
                     "xl/worksheets/sheet${i + 1}.xml",
-                    sheetXml(sheet, if (hasImages) "rId1" else null)
+                    sheetXml(sheet, fmtList, if (hasImages) "rId1" else null)
                 )
                 if (!hasImages) return@forEachIndexed
                 zip.putEntryAndWrite(
@@ -108,6 +131,41 @@ object MiniXlsx {
             }
         }
         return out.toByteArray()
+    }
+
+    /** 列格式代码 → 数字单元格样式号（cellXfs 序号，见 [stylesXml]） */
+    private fun currencyStyle(fmtList: List<String>, code: String?): Int? =
+        code?.let { 2 + fmtList.indexOf(it) }
+
+    private fun stylesXml(fmtList: List<String>): String {
+        val n = fmtList.size
+        // cellXfs：0 默认 | 1 表头灰底 | 2..2+n-1 货币列 | 2+n 合计标签(红字黄底) | 3+n..3+2n-1 合计数值
+        return buildString {
+            append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+            append("""<styleSheet xmlns="$NS_MAIN">""")
+            if (n > 0) {
+                append("""<numFmts count="$n">""")
+                fmtList.forEachIndexed { i, code ->
+                    append("""<numFmt numFmtId="${164 + i}" formatCode="${xmlEscape(code)}"/>""")
+                }
+                append("</numFmts>")
+            }
+            append("""<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><color rgb="FFFF0000"/><sz val="11"/><name val="Calibri"/></font></fonts>""")
+            append("""<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill></fills>""")
+            append("""<borders count="1"><border/></borders>""")
+            append("""<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>""")
+            append("""<cellXfs count="${3 + 2 * n}">""")
+            append("""<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>""")
+            append("""<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>""")
+            fmtList.forEachIndexed { i, _ ->
+                append("""<xf numFmtId="${164 + i}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>""")
+            }
+            append("""<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>""")
+            fmtList.forEachIndexed { i, _ ->
+                append("""<xf numFmtId="${164 + i}" fontId="1" fillId="3" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/>""")
+            }
+            append("</cellXfs></styleSheet>")
+        }
     }
 
     private fun ZipOutputStream.putEntryAndWrite(name: String, content: String) {
@@ -170,10 +228,7 @@ object MiniXlsx {
         append("</Relationships>")
     }
 
-    private val STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="$NS_MAIN"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>"""
-
-    private fun sheetXml(sheet: MiniSheet, drawingRid: String? = null): String = buildString {
+    private fun sheetXml(sheet: MiniSheet, fmtList: List<String>, drawingRid: String? = null): String = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         // CT_Worksheet 元素顺序：cols 在 sheetData 之前，drawing 在其后
         append("""<worksheet xmlns="$NS_MAIN" xmlns:r="$NS_DOC_REL">""")
@@ -194,14 +249,27 @@ object MiniXlsx {
             }
             row.forEachIndexed { c, cell ->
                 val ref = "${colLetters(c)}${r + 1}"
-                // 表头行非空单元格套浅灰底样式（cellXfs 第 2 项）
-                val style = if (r == 0 && sheet.headerFill && cell != null) """ s="1"""" else ""
+                // 表头行非空单元格套浅灰底样式；格式列的数字单元格套货币样式
+                val style = when {
+                    r == 0 && sheet.headerFill && cell != null -> """ s="1""""
+                    cell is Number -> currencyStyle(fmtList, sheet.colFormats[c])?.let { """ s="$it"""" } ?: ""
+                    else -> ""
+                }
                 when (cell) {
                     null -> {}
                     is Number -> append("""<c r="$ref"$style><v>${numberText(cell.toDouble())}</v></c>""")
                     else -> append("""<c r="$ref"$style t="inlineStr"><is><t xml:space="preserve">${xmlEscape(cell.toString())}</t></is></c>""")
                 }
             }
+            append("</row>")
+        }
+        // 合计行：紧随最后一行数据，标签与数值均为红字黄底
+        sheet.total?.let { t ->
+            val n = fmtList.size
+            val rowNum = sheet.rows.size + 1
+            append("""<row r="$rowNum">""")
+            append("""<c r="${colLetters(t.labelCol)}$rowNum" s="${2 + n}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(t.label)}</t></is></c>""")
+            append("""<c r="${colLetters(t.valueCol)}$rowNum" s="${3 + n + fmtList.indexOf(t.formatCode)}"><v>${numberText(t.value)}</v></c>""")
             append("</row>")
         }
         append("</sheetData>")

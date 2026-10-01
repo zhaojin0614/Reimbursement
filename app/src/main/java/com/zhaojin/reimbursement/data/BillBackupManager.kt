@@ -5,6 +5,7 @@ import android.net.Uri
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import com.zhaojin.reimbursement.utils.MiniImage
 import com.zhaojin.reimbursement.utils.MiniSheet
+import com.zhaojin.reimbursement.utils.MiniTotal
 import com.zhaojin.reimbursement.utils.MiniXlsx
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,17 +50,22 @@ object BillBackupManager {
     private const val PHOTO_DISPLAY_W_MAX_PX = 320
 
     /** 固定列宽（Excel 字符单位）：日期时间 / 标题 / 金额 */
-    private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 40.0, 2 to 10.0)
+    private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 40.0, 2 to 20.0)
+
+    /** 图片列宽（Excel 字符单位，固定大列宽便于电脑端查看） */
+    private const val PHOTO_COL_WIDTH = 200.0
+
+    /** 数据行高（磅，Excel 行高单位） */
+    private const val DATA_ROW_HEIGHT_PT = 65.0
+
+    /** 金额列货币格式：¥ + 千分位 + 两位小数 */
+    private const val MONEY_FORMAT = "\"¥\"#,##0.00"
 
     /**
      * 待导出的照片：原始（归一化后）字节 + 原图像素宽高（用于按比例
      * 计算表格中的显示尺寸，避免拉伸变形）。
      */
     data class ExportPhoto(val data: ByteArray, val widthPx: Int, val heightPx: Int)
-
-    /** 96dpi 像素宽 → Excel 列宽字符单位（Calibri 11，MDW=7，标准公式 (px-5)/7） */
-    internal fun colWidthChars(px: Int): Double =
-        kotlin.math.round((px - 5) / 7.0 * 100) / 100
 
     private val OUT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
@@ -118,10 +124,9 @@ object BillBackupManager {
 
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
-     * - 固定列宽 日期时间20 / 标题40 / 金额10，图片列按照片显示宽自适应；
-     * - 行高随照片（80px→60 磅），多张照片横向铺开各占一列；
-     * - 照片按原图宽高比缩放到格子内精确锚定（不变形、恰好填满格子）；
-     * - 表头浅灰底。
+     * - 固定列宽 日期时间20 / 标题40 / 金额20（货币 ¥ 两位小数），图片列固定 200；
+     * - 数据行高统一 65 磅；照片按原图宽高比缩放、锚定格子原点；
+     * - 表头浅灰底；每张表最后一行数据下有「总金额：」合计行（红字黄底）。
      */
     fun buildWorkbook(
         bills: List<BillEntity>,
@@ -151,20 +156,31 @@ object BillBackupManager {
                     )
                 }
             }
-            // 列宽：固定三列 + 图片列取该列所有照片的最大显示宽；行高：有照片的行
+            // 列宽：固定三列 + 每个图片列固定 200；数据行高统一 65 磅
             val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
+            val photoCount = sorted.maxOfOrNull { photosByBill[it.id].orEmpty().size } ?: 0
+            for (k in 0 until photoCount) colWidths[PHOTO_COL + k] = PHOTO_COL_WIDTH
             val rowHeights = HashMap<Int, Double>()
-            sorted.forEachIndexed { rowIdx, b ->
-                val photos = photosByBill[b.id].orEmpty()
-                if (photos.isEmpty()) return@forEachIndexed
-                rowHeights[rowIdx + 1] = PHOTO_DISPLAY_H_PX * 0.75 // px → pt
-                photos.forEachIndexed { k, p ->
-                    val col = PHOTO_COL + k
-                    val w = maxOf(colWidths[col] ?: 0.0, colWidthChars(displayWidthPx(p)).toDouble())
-                    colWidths[col] = w
-                }
-            }
-            return MiniSheet(name, rows, images, colWidths, rowHeights, headerFill = true)
+            for (i in sorted.indices) rowHeights[i + 1] = DATA_ROW_HEIGHT_PT
+            return MiniSheet(
+                name = name,
+                rows = rows,
+                images = images,
+                colWidths = colWidths,
+                rowHeights = rowHeights,
+                headerFill = true,
+                colFormats = mapOf(2 to MONEY_FORMAT),
+                total = MiniTotal(
+                    label = "总金额：",
+                    labelCol = 1,
+                    valueCol = 2,
+                    // 十进制累加避免二进制浮点尾巴（25.6+30.38 应为 55.98 而非 55.9800…04）
+                    value = sorted.fold(java.math.BigDecimal.ZERO) { acc, b ->
+                        acc + java.math.BigDecimal.valueOf(b.amount)
+                    }.toDouble(),
+                    formatCode = MONEY_FORMAT
+                )
+            )
         }
 
         return MiniXlsx.write(
@@ -252,6 +268,8 @@ object BillBackupManager {
             sheet.rows.forEachIndexed { rowIdx, row ->
                 if (rowIdx == 0) return@forEachIndexed
                 if (row.all { it == null || (it is String && it.isBlank()) }) return@forEachIndexed
+                // 合计行等非数据行（日期列为空）直接忽略，不计入坏行
+                if (str(row, col, "日期时间").isNullOrBlank()) return@forEachIndexed
                 try {
                     val timestamp = parseTimestamp(str(row, col, "日期时间") ?: throw IllegalStateException("缺少日期"))
                         ?: throw IllegalStateException("日期格式无法识别")
