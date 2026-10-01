@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,9 +42,6 @@ import com.zhaojin.reimbursement.ui.components.gradientBrush
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.IncomeGreen
 import com.zhaojin.reimbursement.utils.BillPhotoStore
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Composable
 fun BillCard(
@@ -91,47 +87,24 @@ fun BillCard(
 
         Spacer(modifier = Modifier.width(10.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            // Row 1: Title + Amount
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = bill.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
-                )
-                val amountColor = if (bill.isIncome) IncomeGreen else ExpenseRed
-                val amountPrefix = if (bill.isIncome) "+" else "-"
-                Text(
-                    text = "$amountPrefix¥${String.format("%.2f", bill.amount)}",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = amountColor
-                )
-            }
-
-            // Row 2: Time（靠右，与上方金额右对齐）
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = formatBillTimeOnly(bill.timestamp),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-        }
+        // 单行内容：标题居左，金额居右（日期由分组标题表达，行内不再重复）
+        val amountColor = if (bill.isIncome) IncomeGreen else ExpenseRed
+        val amountPrefix = if (bill.isIncome) "+" else "-"
+        Text(
+            text = bill.title,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "$amountPrefix¥${String.format("%.2f", bill.amount)}",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = amountColor
+        )
     }
 }
 
@@ -203,12 +176,4 @@ private fun BillIconBox(
             )
         }
     }
-}
-
-private val billTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
-
-/** 账单时间只显示到日（年月日），不显示时分 */
-private fun formatBillTimeOnly(timestamp: Long): String {
-    val zoned = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
-    return billTimeFormatter.format(zoned)
 }
