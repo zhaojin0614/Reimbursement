@@ -174,15 +174,19 @@ class BillBackupManagerTest {
     }
 
     @Test
-    fun `导出版式 - 图片锚点按宽高比定尺寸`() {
+    fun `导出版式 - 图片锚点铺满所在格子`() {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
-        // 竖图 100x200 → 40x80px；方图 100x100 → 80x80px；横图 200x100 → 160x80px
+        // twoCellAnchor：从本格原点铺到下一格原点，显示尺寸恒等于格子（跨设备不溢出）
+        assertTrue(drawing.contains("<xdr:twoCellAnchor>"))
+        // 支出表第一行（美团）图片从 D 列原点起
+        assertTrue(drawing.contains("<xdr:from><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row>"))
+        // 到 E 列 / 下一行原点为止
+        assertTrue(drawing.contains("<xdr:to><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
+        // 同账单两张图横向排开：第二张锚在 E 列
+        assertTrue(drawing.contains("<xdr:from><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
+        // xfrm 保留期望显示尺寸（竖图 40x80px）
         assertTrue(drawing.contains("""cx="${40 * 9525}" cy="${80 * 9525}""""))
-        assertTrue(drawing.contains("""cx="${80 * 9525}" cy="${80 * 9525}""""))
-        assertTrue(drawing.contains("""cx="${160 * 9525}" cy="${80 * 9525}""""))
-        // 锚点从格子原点起（0 偏移），图片精确贴合格子
-        assertTrue(drawing.contains("<xdr:colOff>0</xdr:colOff><xdr:row>"))
     }
 
     @Test
