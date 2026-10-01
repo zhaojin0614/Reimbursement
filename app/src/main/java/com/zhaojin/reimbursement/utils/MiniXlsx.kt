@@ -46,10 +46,12 @@ data class MiniTotal(
 )
 
 /**
- * 内嵌图片（OOXML drawing 层）：twoCellAnchor 绑定 (row, col) 单元格（0 基），
- * 从格子原点铺到下一格原点——**显示尺寸恒等于查看端渲染的格子大小**，
- * 手机/电脑（不同字体度量与 DPI）都不会溢出格子。[widthPx]/[heightPx]
- * 为期望的 96dpi 显示尺寸，写入 xfrm 供部分查看器参考。
+ * 内嵌图片（OOXML drawing 层）：oneCellAnchor 锚定 (row, col) 单元格（0 基）
+ * 原点（可加 [colOffPx]/[rowOffPx] 偏移），按 [widthPx]×[heightPx]（96dpi）
+ * 的**绝对尺寸**显示——尺寸单位是 EMU，与查看端字体度量无关，因此
+ * **始终严格保持原图宽高比**（twoCellAnchor 铺满格子会把图拉成格子比例）。
+ * 不溢出格子由调用方保证：高度 ≤ 行高（磅是绝对单位，各端一致）、
+ * 列宽字符数按最保守字体度量预留。
  * data 须为 JPEG/PNG 字节。
  */
 data class MiniImage(
@@ -57,7 +59,9 @@ data class MiniImage(
     val col: Int,
     val data: ByteArray,
     val widthPx: Int = 80,
-    val heightPx: Int = 80
+    val heightPx: Int = 80,
+    val colOffPx: Int = 0,
+    val rowOffPx: Int = 0
 )
 
 /** [MiniXlsx.readWithImages] 的返回：工作表 + 各表内嵌图片（表名 → 物理行 → 字节列表） */
@@ -284,24 +288,24 @@ object MiniXlsx {
 <xdr:wsDr xmlns:xdr="$NS_XDR" xmlns:a="$NS_A">$anchors</xdr:wsDr>"""
 
     /**
-     * 单图锚点（twoCellAnchor）：从 (row, col) 格子原点铺到 (row+1, col+1)
-     * 格子原点——图片大小恒等于查看端渲染的格子，任何设备都不会溢出。
+     * 单图锚点（oneCellAnchor）：从单元格原点（可带偏移）起、按 [MiniImage]
+     * 的 96dpi 显示尺寸铺开——EMU 是绝对单位，手机/电脑渲染出的图片
+     * 宽高比都严格等于原图，不会被格子比例拉伸。
      */
     private fun picAnchor(img: MiniImage, rid: String, picIndex: Int): String {
         val cx = img.widthPx * EMU_PER_PX
         val cy = img.heightPx * EMU_PER_PX
         return buildString {
-            append("<xdr:twoCellAnchor>")
-            append("<xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>0</xdr:colOff>")
-            append("<xdr:row>${img.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>")
-            append("<xdr:to><xdr:col>${img.col + 1}</xdr:col><xdr:colOff>0</xdr:colOff>")
-            append("<xdr:row>${img.row + 1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>")
+            append("<xdr:oneCellAnchor>")
+            append("<xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>${img.colOffPx * EMU_PER_PX}</xdr:colOff>")
+            append("<xdr:row>${img.row}</xdr:row><xdr:rowOff>${img.rowOffPx * EMU_PER_PX}</xdr:rowOff></xdr:from>")
+            append("""<xdr:ext cx="$cx" cy="$cy"/>""")
             append("""<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="$picIndex" name="图片$picIndex"/>""")
             append("""<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>""")
             append("""<xdr:blipFill><a:blip xmlns:r="$NS_DOC_REL" r:embed="$rid"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>""")
             append("""<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="$cx" cy="$cy"/></a:xfrm>""")
             append("""<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>""")
-            append("</xdr:pic><xdr:clientData/></xdr:twoCellAnchor>")
+            append("</xdr:pic><xdr:clientData/></xdr:oneCellAnchor>")
         }
     }
 

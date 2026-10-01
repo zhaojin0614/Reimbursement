@@ -302,10 +302,10 @@ class BillBackupManagerTest {
         assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="4" max="4" width="40" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="5" max="5" width="20" customWidth="1"/>"""))
-        // 图片列宽 = 一张图的显示宽（该列最大值）：
-        // F 列 max(竖图40px, 方图80px)=80→10.71，G 列 横图160px→22.14
-        assertTrue(sheet1.contains("""<col min="6" max="6" width="10.71" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="7" max="7" width="22.14" customWidth="1"/>"""))
+        // 图片列宽 = 一张图的显示宽按保守度量（MDW=6）预留（该列最大值）：
+        // F 列 max(竖图42px, 方图84px)=84→预留98px→13.29 字符；G 列横图 168px→预留196px→27.29 字符
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="13.29" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="7" max="7" width="27.29" customWidth="1"/>"""))
         assertTrue(!sheet1.contains("""width="200""""))
         // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3、4）
         assertTrue(sheet1.contains("""<row r="2" ht="65" customHeight="1">"""))
@@ -332,19 +332,39 @@ class BillBackupManagerTest {
     }
 
     @Test
-    fun `导出版式 - 图片锚点铺满所在格子`() {
+    fun `导出版式 - 图片等比缩放锚定格子原点`() {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
-        // twoCellAnchor：从本格原点铺到下一格原点，显示尺寸恒等于格子（跨设备不溢出）
-        assertTrue(drawing.contains("<xdr:twoCellAnchor>"))
-        // 表内第二数据行（美团）图片从 F 列原点起
+        // oneCellAnchor：绝对显示尺寸严格等于原图宽高比（twoCellAnchor 铺满格子会被格子比例拉伸变形）
+        assertTrue(drawing.contains("<xdr:oneCellAnchor>"))
+        assertTrue(!drawing.contains("twoCellAnchor"))
+        // 美团行（0 基 row=2）竖图 100x200 → 显示 42x84px，锚在 F 列原点
         assertTrue(drawing.contains("<xdr:from><xdr:col>5</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
-        // 到 G 列 / 下一行原点为止
-        assertTrue(drawing.contains("<xdr:to><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
-        // 同账单两张图横向排开：第二张锚在 G 列
+        // 京东行（row=3）两张图横向排开：第二张锚在 G 列
         assertTrue(drawing.contains("<xdr:from><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
-        // xfrm 保留期望显示尺寸（竖图 40x80px）
-        assertTrue(drawing.contains("""cx="${40 * 9525}" cy="${80 * 9525}""""))
+        // 行高 65 磅 ≈ 86.7px，84px 高的图行内垂直居中（偏移 1px = 9525 EMU）
+        assertTrue(drawing.contains("<xdr:rowOff>9525</xdr:rowOff>"))
+        // 竖图 c3 的 ext = 42x84px（比例 0.5 = 原图 100x200）
+        assertTrue(drawing.contains("""cx="${42 * 9525}" cy="${84 * 9525}""""))
+    }
+
+    @Test
+    fun `导出 - 照片保持原图宽高比不被压扁`() {
+        // 回归：「好好干」720x1600 竖长图（比例 0.45）曾被铺满格子拉成 1.23 的横条
+        val bills = listOf(
+            BillEntity(
+                id = 1, amount = 990.0, title = "好好干", isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 10, 2, 12, 0, 0))
+            )
+        )
+        val photos = mapOf(1L to listOf(photo("tall", 720, 1600)))
+        val bytes = BillBackupManager.buildWorkbook(bills, photos)
+        val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
+        // 显示 38x84px：38/84 ≈ 0.452 ≈ 原图 720/1600
+        assertTrue(drawing.contains("""cx="${38 * 9525}" cy="${84 * 9525}""""))
+        // 列宽按 MDW=6 保守预留：38×7/6 ≈ 44px → 5.57 字符（任何字体度量下都容得下）
+        val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="5.57" customWidth="1"/>"""))
     }
 
     @Test
