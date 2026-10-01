@@ -102,12 +102,15 @@ class BillBackupManagerTest {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
 
-        // 固定列宽：日期时间 20 / 标题 40 / 金额 20（min/max 为 1 基）；图片列固定 200
+        // 固定列宽：日期时间 20 / 标题 40 / 金额 20（min/max 为 1 基）
         assertTrue(sheet1.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="2" max="2" width="40" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="4" max="4" width="200" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="5" max="5" width="200" customWidth="1"/>"""))
+        // 图片列宽 = 一张图的显示宽（该列最大值）：
+        // D 列 max(竖图40px, 方图80px)=80→10.71，E 列 横图160px→22.14
+        assertTrue(sheet1.contains("""<col min="4" max="4" width="10.71" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="5" max="5" width="22.14" customWidth="1"/>"""))
+        assertTrue(!sheet1.contains("""width="200""""))
         // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3）
         assertTrue(sheet1.contains("""<row r="2" ht="65" customHeight="1">"""))
         assertTrue(sheet1.contains("""<row r="3" ht="65" customHeight="1">"""))
@@ -127,10 +130,10 @@ class BillBackupManagerTest {
         assertTrue(styles.contains("FFFF0000"))
         assertTrue(styles.contains("FFFFFF00"))
 
-        // 收入表：无照片无 200 列宽；数据行也 65；合计行 8500
+        // 收入表：无照片，无图片列；数据行也 65；合计行 8500
         val sheet2 = unzipEntry(bytes, "xl/worksheets/sheet2.xml")
         assertTrue(sheet2.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
-        assertTrue(!sheet2.contains("""width="200""""))
+        assertTrue(!sheet2.contains("""<col min="4""""))
         assertTrue(sheet2.contains("""<row r="2" ht="65" customHeight="1">"""))
         assertTrue(sheet2.contains("""<c r="B3" s="3" t="inlineStr">"""))
         assertTrue(sheet2.contains("""<c r="C3" s="4"><v>8500</v></c>"""))

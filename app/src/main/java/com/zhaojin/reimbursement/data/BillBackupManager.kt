@@ -52,9 +52,6 @@ object BillBackupManager {
     /** 固定列宽（Excel 字符单位）：日期时间 / 标题 / 金额 */
     private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 40.0, 2 to 20.0)
 
-    /** 图片列宽（Excel 字符单位，固定大列宽便于电脑端查看） */
-    private const val PHOTO_COL_WIDTH = 200.0
-
     /** 数据行高（磅，Excel 行高单位） */
     private const val DATA_ROW_HEIGHT_PT = 65.0
 
@@ -66,6 +63,10 @@ object BillBackupManager {
      * 计算表格中的显示尺寸，避免拉伸变形）。
      */
     data class ExportPhoto(val data: ByteArray, val widthPx: Int, val heightPx: Int)
+
+    /** 96dpi 像素宽 → Excel 列宽字符单位（Calibri 11，MDW=7，标准公式 (px-5)/7） */
+    internal fun colWidthChars(px: Int): Double =
+        kotlin.math.round((px - 5) / 7.0 * 100) / 100
 
     private val OUT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
@@ -128,7 +129,8 @@ object BillBackupManager {
 
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
-     * - 固定列宽 日期时间20 / 标题40 / 金额20（货币 ¥ 两位小数），图片列固定 200；
+     * - 固定列宽 日期时间20 / 标题40 / 金额20（货币 ¥ 两位小数）；
+     * - 图片列宽 = 该列照片的显示宽（一张图的宽度），多张横向排开互不相隔过远；
      * - 数据行高统一 65 磅；照片按原图宽高比缩放、锚定格子原点；
      * - 表头浅灰底；每张表最后一行数据下有「总金额：」合计行（红字黄底）。
      */
@@ -163,10 +165,14 @@ object BillBackupManager {
                     )
                 }
             }
-            // 列宽：固定三列 + 每个图片列固定 200；数据行高统一 65 磅
+            // 列宽：固定三列 + 图片列取该列所有照片显示宽的最大值；数据行高统一 65 磅
             val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
-            val photoCount = sorted.maxOfOrNull { photosByBill[it.id].orEmpty().size } ?: 0
-            for (k in 0 until photoCount) colWidths[PHOTO_COL + k] = PHOTO_COL_WIDTH
+            sorted.forEach { b ->
+                photosByBill[b.id].orEmpty().forEachIndexed { k, p ->
+                    val col = PHOTO_COL + k
+                    colWidths[col] = maxOf(colWidths[col] ?: 0.0, colWidthChars(displayWidthPx(p)))
+                }
+            }
             val rowHeights = HashMap<Int, Double>()
             for (i in sorted.indices) rowHeights[i + 1] = DATA_ROW_HEIGHT_PT
             return MiniSheet(
