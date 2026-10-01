@@ -113,6 +113,9 @@ import java.time.ZoneId
 /** 导出文件的 MIME：单个 xlsx（照片内嵌在工作簿里） */
 private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+/** 相册一次可选照片上限（系统照片选择器多选） */
+private const val GALLERY_MAX_PICK = 9
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillScreen(
@@ -180,15 +183,17 @@ fun BillScreen(
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+        ActivityResultContracts.PickMultipleVisualMedia(GALLERY_MAX_PICK)
+    ) { uris ->
         val billId = galleryBillId
         galleryBillId = null
-        if (uri != null && billId != null) {
+        if (uris.isNotEmpty() && billId != null) {
             scope.launch {
-                // 相册授权是一次性的：复制进私有目录持久保存
-                val name = BillPhotoStore.importFromUri(context, uri)
-                if (name != null) viewModel.addBillPhoto(billId, name)
+                // 相册授权是一次性的：逐张复制进私有目录持久保存
+                uris.forEach { uri ->
+                    val name = BillPhotoStore.importFromUri(context, uri)
+                    if (name != null) viewModel.addBillPhoto(billId, name)
+                }
             }
         }
     }
@@ -692,7 +697,7 @@ fun BillScreen(
         GlassCompactDialog(
             onDismissRequest = { sourcePickerFor = null },
             title = "添加账单图片",
-            text = { Text("为「$title」添加图片，图片将显示为账单图标，可添加多张。") },
+            text = { Text("为「$title」添加图片，图片将显示为账单图标；从相册可一次选多张。") },
             confirmButton = {
                 TextButton(onClick = {
                     sourcePickerFor = null
