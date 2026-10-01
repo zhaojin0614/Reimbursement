@@ -67,7 +67,11 @@ object BillBackupManager {
      */
     data class ExportPhoto(val data: ByteArray, val widthPx: Int, val heightPx: Int)
 
-    private val OUT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    private val OUT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+    /** 排序键：按日（本地时区）升序，同一天内按添加顺序（id）升序 */
+    private fun dayOf(bill: BillEntity): LocalDate =
+        Instant.ofEpochMilli(bill.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
 
     /** 导入可接受的日期写法（含 Excel 编辑后常见的斜杠变体） */
     private val IN_DATETIME_PATTERNS = listOf(
@@ -142,7 +146,10 @@ object BillBackupManager {
         }
 
         fun sheetData(name: String, list: List<BillEntity>): MiniSheet {
-            val sorted = list.sortedBy { it.timestamp }
+            // 日期列只到日；同一天内按添加顺序（id 升序），天与天之间由早到晚
+            val sorted = list.sortedWith(
+                compareBy<BillEntity> { dayOf(it) }.thenBy { it.id }
+            )
             val rows = listOf(BILL_HEADERS) + sorted.map { b ->
                 val n = photosByBill[b.id].orEmpty().size
                 listOf<Any?>(formatTime(b.timestamp), b.title, b.amount, if (n > 0) "${n}张" else null)

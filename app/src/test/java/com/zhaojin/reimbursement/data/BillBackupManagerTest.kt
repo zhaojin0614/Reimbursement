@@ -147,6 +147,30 @@ class BillBackupManagerTest {
     }
 
     @Test
+    fun `导出排序与日期 - 只到日且同日按添加顺序`() {
+        val sameDay = ts(LocalDateTime.of(2026, 8, 30, 8, 0, 0))
+        // 同一天三笔，id 顺序 30 → 10 → 20；另一笔 8-29
+        val bills = listOf(
+            BillEntity(id = 30, amount = 1.0, title = "三号", isIncome = false, timestamp = sameDay + 6_000),
+            BillEntity(id = 10, amount = 2.0, title = "一号", isIncome = false, timestamp = sameDay),
+            BillEntity(id = 20, amount = 3.0, title = "二号", isIncome = false, timestamp = sameDay + 3_000),
+            BillEntity(id = 40, amount = 4.0, title = "前一日", isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 8, 29, 23, 0, 0)))
+        )
+        val backup = BillBackupManager.parseBackup(BillBackupManager.buildWorkbook(bills, emptyMap()))
+        val titles = backup.workbook.bills.map { it.title }
+        // 天由早到晚；8-30 当天按 id（添加顺序）一号→二号→三号
+        assertEquals(listOf("前一日", "一号", "二号", "三号"), titles)
+        // 日期列只到日：解析回 8-30 12:00（日期缺省正午）
+        backup.workbook.bills.filter { it.title != "前一日" }.forEach {
+            assertEquals(
+                LocalDateTime.of(2026, 8, 30, 12, 0, 0),
+                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(it.timestamp), ZoneId.systemDefault())
+            )
+        }
+    }
+
+    @Test
     fun `导出版式 - 图片锚点按宽高比定尺寸`() {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")

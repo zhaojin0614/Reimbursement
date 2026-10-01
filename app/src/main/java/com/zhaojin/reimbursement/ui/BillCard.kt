@@ -205,8 +205,9 @@ private fun BillIconBox(
     }
 }
 
-private val billTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val billTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
+/** 账单时间只显示到日（年月日），不显示时分 */
 private fun formatBillTimeOnly(timestamp: Long): String {
     val zoned = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
     return billTimeFormatter.format(zoned)

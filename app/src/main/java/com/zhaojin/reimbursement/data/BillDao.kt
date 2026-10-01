@@ -11,14 +11,14 @@ import kotlinx.coroutines.flow.Flow
 interface BillDao {
 
     /**
-     * 记账页账单列表：按时间倒序条数分页（LIMIT）。所有筛选视图共用，
-     * 传 null 表示该维度不过滤。条数分页对回填旧日期的账单同样可见
-     * （时间窗口分页会让窗口外的历史账单在「全部」视图消失）。
+     * 记账页账单列表：按日倒序分组，同一天内按添加顺序（id 正序）。
+     * 时间只取到日（localtime），同日账单不分先后时分。所有筛选视图共用，
+     * 传 null 表示该维度不过滤。条数分页对回填旧日期的账单同样可见。
      */
     @Query(
         """SELECT * FROM bills
            WHERE (:type IS NULL OR isIncome = :type)
-           ORDER BY timestamp DESC
+           ORDER BY date(timestamp / 1000, 'unixepoch', 'localtime') DESC, id ASC
            LIMIT :limit"""
     )
     fun getBillsFiltered(type: Boolean?, limit: Int): Flow<List<BillEntity>>
@@ -35,7 +35,7 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC")
     suspend fun getBillsBetween(start: Long, end: Long): List<BillEntity>
 
-    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤与条数分页 */
+    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤；排序同列表（日倒序+添加顺序） */
     @Query(
         """
         SELECT * FROM bills
@@ -44,7 +44,7 @@ interface BillDao {
             OR CAST(amount AS TEXT) LIKE '%' || :query || '%'
         )
         AND (:type IS NULL OR isIncome = :type)
-        ORDER BY timestamp DESC
+        ORDER BY date(timestamp / 1000, 'unixepoch', 'localtime') DESC, id ASC
         LIMIT :limit
         """
     )
