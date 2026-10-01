@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.zhaojin.reimbursement.data.AppDatabase
 import com.zhaojin.reimbursement.data.BillBackupManager
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.data.BillPhotoEntity
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -23,6 +24,12 @@ import kotlinx.coroutines.launch
 class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     private val billDao = AppDatabase.getDatabase(application).billDao()
+    private val photoDao = AppDatabase.getDatabase(application).billPhotoDao()
+
+    /** 全部图片记录按账单分组（key = billId，值按添加时间正序） */
+    val photosByBill: StateFlow<Map<Long, List<BillPhotoEntity>>> = photoDao.getAll()
+        .map { list -> list.groupBy { it.billId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // ── 备份与恢复 ──────────────────────────────────────────────────────
     private val _backupBusy = MutableStateFlow(false)
@@ -30,15 +37,22 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _backupMessage = MutableStateFlow<String?>(null)
     val backupMessage: StateFlow<String?> = _backupMessage
 
-    /** 导出全部账单为 xlsx 工作簿（用户经 SAF 选择位置） */
+    /** 导出全部账单 + 图片为 zip 备份包（用户经 SAF 选择位置） */
     fun exportBackup(uri: Uri) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
             try {
                 val bills = billDao.getAllBillsOnce()
-                BillBackupManager.exportToUri(getApplication(), uri, bills)
-                    .onSuccess { _backupMessage.value = "已导出 $it 条账单" }
+                val photos = photoDao.getAllOnce()
+                    .groupBy { it.billId }
+                    .mapValues { e -> e.value.map { it.fileName } }
+                BillBackupManager.exportToUri(getApplication(), uri, bills, photos)
+                    .onSuccess {
+                        val photoCount = photos.values.sumOf { it.size }
+                        _backupMessage.value =
+                            "已导出 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                    }
                     .onFailure { _backupMessage.value = "导出失败：${it.message}" }
             } finally {
                 _backupBusy.value = false
@@ -47,8 +61,9 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 从 xlsx 工作簿导入。overwrite=false 合并（指纹去重）；
-     * true 恢复覆盖（清空账单后按快照重建）。
+     * 从备份文件导入。支持 zip 包（含图片）与纯 xlsx（旧版/捕账格式）。
+     * overwrite=false 合并（账单指纹去重，已存在的不重复导入图片）；
+     * true 恢复覆盖（清空账单、图片记录和图片文件后重建）。
      */
     fun importBackup(uri: Uri, overwrite: Boolean) {
         if (_backupBusy.value) return
@@ -58,8 +73,10 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 val context = getApplication<Application>()
                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: throw IllegalStateException("无法读取所选文件")
-                val parsed = BillBackupManager.parseWorkbook(bytes)
-                val result = BillBackupManager.importBills(billDao, parsed, overwrite)
+                val backup = BillBackupManager.parseBackup(bytes)
+                val result = BillBackupManager.importBackup(
+                    context, billDao, photoDao, backup.workbook, backup.images, overwrite
+                )
                 _backupMessage.value = (if (overwrite) "恢复完成：" else "导入完成：") + result.summary()
             } catch (e: Exception) {
                 _backupMessage.value = (if (overwrite) "恢复失败：" else "导入失败：") + (e.message ?: "未知错误")
@@ -208,9 +225,10 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         if (ids.isNotEmpty()) {
             viewModelScope.launch(Dispatchers.IO) {
                 ids.forEach { id ->
-                    billDao.getBillByIdOnce(id)?.photoPath?.let {
-                        BillPhotoStore.delete(getApplication(), it)
+                    photoDao.getByBillOnce(id).forEach {
+                        BillPhotoStore.delete(getApplication(), it.fileName)
                     }
+                    photoDao.deleteByBill(id)
                     billDao.deleteById(id)
                 }
             }
@@ -237,26 +255,30 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * 设置/替换账单图片；photoName=null 表示删除图片。
-     * 替换时同步删除旧图片文件，防止孤儿文件。
-     */
-    fun setBillPhoto(id: Long, photoName: String?) {
+    /** 账单追加一张图片（拍照/相册导入完成、文件已落盘后调用） */
+    fun addBillPhoto(billId: Long, fileName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val oldName = billDao.getBillByIdOnce(id)?.photoPath
-            billDao.updatePhoto(id, photoName)
-            if (oldName != null && oldName != photoName) {
-                BillPhotoStore.delete(getApplication(), oldName)
-            }
+            photoDao.insert(
+                BillPhotoEntity(billId = billId, fileName = fileName, createdAt = System.currentTimeMillis())
+            )
+        }
+    }
+
+    /** 删除单张图片：删记录 + 删文件 */
+    fun deleteBillPhoto(photo: BillPhotoEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            photoDao.delete(photo)
+            BillPhotoStore.delete(getApplication(), photo.fileName)
         }
     }
 
     fun deleteBill(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            // 先取图片名并删文件，再删账单记录
-            billDao.getBillByIdOnce(id)?.photoPath?.let {
-                BillPhotoStore.delete(getApplication(), it)
+            // 先删图片记录与文件，再删账单记录
+            photoDao.getByBillOnce(id).forEach {
+                BillPhotoStore.delete(getApplication(), it.fileName)
             }
+            photoDao.deleteByBill(id)
             billDao.deleteById(id)
         }
     }

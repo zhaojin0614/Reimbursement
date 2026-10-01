@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zhaojin.reimbursement.R
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.data.BillPhotoEntity
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SoftCard
@@ -114,6 +115,7 @@ fun BillScreen(
     viewModel: BillViewModel = viewModel()
 ) {
     val bills by viewModel.bills.collectAsState()
+    val photosByBill by viewModel.photosByBill.collectAsState()
     val totalExpense by viewModel.totalExpense.collectAsState()
     val totalIncome by viewModel.totalIncome.collectAsState()
     val monthExpense by viewModel.monthExpense.collectAsState()
@@ -140,14 +142,15 @@ fun BillScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ── 账单图片：拍照 / 相册 / 查看器状态 ──────────────────────────────
-    // 无图图标点击 → chooserBill（选择来源）；有图图标点击 → viewerBill
-    var chooserBill by remember { mutableStateOf<BillEntity?>(null) }
-    var viewerBill by remember { mutableStateOf<BillEntity?>(null) }
+    // ── 账单图片（多张）：拍照 / 相册 / 查看器状态 ──────────────────────
+    // 无图图标点击 → sourcePickerFor（选择来源）；有图图标点击 → viewerBill
+    // sourcePickerFor = (billId, title)，查看器内「添加图片」复用同一弹窗
+    var sourcePickerFor by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    var viewerBill by remember { mutableStateOf<Pair<Long, String>?>(null) }
     // 进行中的拍照任务（账单 + pending 文件），回调里按它落库/清理
     var pendingCaptureBillId by remember { mutableStateOf<Long?>(null) }
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
-    // 相册选择的目标账单（添加或替换共用一个选择器）
+    // 相册选择的目标账单（添加或追加共用一个选择器）
     var galleryBillId by remember { mutableStateOf<Long?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -162,7 +165,7 @@ fun BillScreen(
                 scope.launch {
                     // pending 转正为正式文件并入库；转正失败则丢弃
                     val name = BillPhotoStore.commitPending(context, file)
-                    if (name != null) viewModel.setBillPhoto(billId, name)
+                    if (name != null) viewModel.addBillPhoto(billId, name)
                     else BillPhotoStore.discard(file)
                 }
             } else {
@@ -180,7 +183,7 @@ fun BillScreen(
             scope.launch {
                 // 相册授权是一次性的：复制进私有目录持久保存
                 val name = BillPhotoStore.importFromUri(context, uri)
-                if (name != null) viewModel.setBillPhoto(billId, name)
+                if (name != null) viewModel.addBillPhoto(billId, name)
             }
         }
     }
@@ -535,6 +538,7 @@ fun BillScreen(
                             DayGroupCard(
                                 date = date,
                                 bills = dayBills,
+                                photosByBill = photosByBill,
                                 isSelectionMode = isSelectionMode,
                                 selectedIds = selectedIds,
                                 onBillClick = { bill ->
@@ -551,9 +555,12 @@ fun BillScreen(
                                     }
                                 },
                                 onIconClick = { bill ->
-                                    // 图标点击：有图 → 查看原图；无图 → 选择图片来源
-                                    if (bill.photoPath != null) viewerBill = bill
-                                    else chooserBill = bill
+                                    // 图标点击：有图 → 翻页查看全部图片；无图 → 选择图片来源
+                                    if (photosByBill[bill.id].isNullOrEmpty()) {
+                                        sourcePickerFor = bill.id to bill.title
+                                    } else {
+                                        viewerBill = bill.id to bill.title
+                                    }
                                 },
                                 onDelete = { bill ->
                                     billToDelete = bill
@@ -644,46 +651,42 @@ fun BillScreen(
         )
     }
 
-    // ── 账单图片：来源选择（无图图标点击）/ 全屏查看器（有图图标点击）──
-    chooserBill?.let { bill ->
+    // ── 账单图片：来源选择弹窗（无图图标点击 / 查看器「添加图片」共用）──
+    sourcePickerFor?.let { (billId, title) ->
         GlassCompactDialog(
-            onDismissRequest = { chooserBill = null },
+            onDismissRequest = { sourcePickerFor = null },
             title = "添加账单图片",
-            text = { Text("为「${bill.title}」添加图片，图片将作为账单图标显示。") },
+            text = { Text("为「$title」添加图片，图片将显示为账单图标，可添加多张。") },
             confirmButton = {
                 TextButton(onClick = {
-                    chooserBill = null
-                    startCameraCapture(bill.id)
+                    sourcePickerFor = null
+                    startCameraCapture(billId)
                 }) { Text("拍照") }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    chooserBill = null
-                    launchGalleryPick(bill.id)
+                    sourcePickerFor = null
+                    launchGalleryPick(billId)
                 }) { Text("从相册选择") }
             }
         )
     }
 
-    viewerBill?.let { bill ->
-        bill.photoPath?.let { name ->
-            BillPhotoViewer(
-                photoName = name,
-                onClose = { viewerBill = null },
-                onRetake = {
-                    viewerBill = null
-                    startCameraCapture(bill.id)
-                },
-                onPickReplace = {
-                    viewerBill = null
-                    launchGalleryPick(bill.id)
-                },
-                onDelete = {
-                    viewModel.setBillPhoto(bill.id, null)
-                    viewerBill = null
-                }
-            )
+    // ── 账单图片：全屏翻页查看器 ─────────────────────────────────────────
+    viewerBill?.let { (billId, title) ->
+        val viewerPhotos = photosByBill[billId].orEmpty()
+        // 最后一张被删除后自动关闭查看器
+        LaunchedEffect(viewerPhotos.size) {
+            if (viewerPhotos.isEmpty()) viewerBill = null
         }
+        BillPhotoViewer(
+            photoNames = viewerPhotos.map { it.fileName },
+            onClose = { viewerBill = null },
+            onAdd = { sourcePickerFor = billId to title },
+            onDeleteCurrent = { index ->
+                viewerPhotos.getOrNull(index)?.let { viewModel.deleteBillPhoto(it) }
+            }
+        )
     }
 
     // Single item delete confirmation
@@ -911,6 +914,7 @@ fun BillStatItem(
 fun DayGroupCard(
     date: LocalDate,
     bills: List<BillEntity>,
+    photosByBill: Map<Long, List<BillPhotoEntity>>,
     isSelectionMode: Boolean,
     selectedIds: Set<Long>,
     onBillClick: (BillEntity) -> Unit,
@@ -964,6 +968,7 @@ fun DayGroupCard(
                     ) {
                         BillCard(
                             bill = bill,
+                            photoNames = photosByBill[bill.id].orEmpty().map { it.fileName },
                             isSelected = selectedIds.contains(bill.id),
                             isSelectionMode = isSelectionMode,
                             onClick = { onBillClick(bill) },

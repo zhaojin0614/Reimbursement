@@ -25,6 +25,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -49,11 +50,12 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun BillCard(
     bill: BillEntity,
+    photoNames: List<String>,
     isSelected: Boolean,
     isSelectionMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    /** 点击图标：无图 → 添加图片（拍照/相册）；有图 → 查看原图 */
+    /** 点击图标：无图 → 添加图片（拍照/相册）；有图 → 查看全部图片 */
     onIconClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -81,7 +83,8 @@ fun BillCard(
             )
         }
         BillIconBox(
-            bill = bill,
+            photoNames = photoNames,
+            fallbackText = bill.title.take(1).uppercase(),
             enabled = !isSelectionMode,
             onClick = onIconClick
         )
@@ -132,17 +135,19 @@ fun BillCard(
 }
 
 /**
- * 账单图标：有图片时显示照片缩略图（点击查看原图），
- * 无图片时显示标题首字（点击添加图片）。多选模式下不响应图标点击。
+ * 账单图标：有图片时显示第一张照片缩略图（多张时右上角角标计数），
+ * 无图片时显示标题首字。多选模式下不响应图标点击。
  */
 @Composable
 private fun BillIconBox(
-    bill: BillEntity,
+    photoNames: List<String>,
+    fallbackText: String,
     enabled: Boolean,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
     val sizePx = with(LocalDensity.current) { 40.dp.roundToPx() }
+    val firstName = photoNames.firstOrNull()
 
     Box(
         modifier = Modifier
@@ -153,12 +158,11 @@ private fun BillIconBox(
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        val photoName = bill.photoPath
-        if (photoName != null) {
+        if (firstName != null) {
             val thumb by produceState<ImageBitmap?>(
-                initialValue = null, key1 = photoName, key2 = sizePx
+                initialValue = null, key1 = firstName, key2 = sizePx
             ) {
-                value = BillPhotoStore.loadThumbnail(context, photoName, sizePx)?.asImageBitmap()
+                value = BillPhotoStore.loadThumbnail(context, firstName, sizePx)?.asImageBitmap()
             }
             val bmp = thumb
             if (bmp != null) {
@@ -170,21 +174,34 @@ private fun BillIconBox(
                 )
             } else {
                 // 缩略图解码中：先显示首字占位
-                IconFallbackText(bill = bill)
+                Text(
+                    text = fallbackText,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            if (photoNames.size > 1) {
+                // 多图角标：右上角张数
+                Text(
+                    text = "${photoNames.size}",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 4.dp)
+                )
             }
         } else {
-            IconFallbackText(bill = bill)
+            Text(
+                text = fallbackText,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
-}
-
-@Composable
-private fun IconFallbackText(bill: BillEntity) {
-    Text(
-        text = bill.title.take(1).uppercase(),
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onPrimaryContainer
-    )
 }
 
 private val billTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")

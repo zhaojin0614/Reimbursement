@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,12 +15,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +47,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -56,18 +59,20 @@ import com.zhaojin.reimbursement.utils.BillPhotoStore
 private const val VIEWER_MAX_PIXELS = 4_000_000L
 
 /**
- * 账单图片全屏查看器：双指缩放/拖动看原图，
- * 底部操作 重新拍摄 / 从相册替换 / 删除图片（删除需确认）。
+ * 账单图片全屏查看器（多照片）：
+ * - 左右翻页浏览全部照片，右上角页码「2/3」（仅多图时显示）
+ * - 单击不响应翻页冲突；双击在 1x/2.5x 间切换，放大后可拖动/双指缩放
+ * - 底部操作：添加图片（继续拍照/选相册）/ 删除本张（需确认）
  */
 @Composable
 fun BillPhotoViewer(
-    photoName: String,
+    photoNames: List<String>,
     onClose: () -> Unit,
-    onRetake: () -> Unit,
-    onPickReplace: () -> Unit,
-    onDelete: () -> Unit
+    onAdd: () -> Unit,
+    onDeleteCurrent: (Int) -> Unit
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
+    val pagerState = rememberPagerState(pageCount = { photoNames.size })
 
     BackHandler { onClose() }
 
@@ -77,50 +82,26 @@ fun BillPhotoViewer(
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color(0xF2000000.toInt())) {
             Box(modifier = Modifier.fillMaxSize()) {
-                val context = LocalContext.current
-                val configuration = LocalConfiguration.current
-                val maxDimPx = with(LocalDensity.current) {
-                    maxOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
-                        .roundToPx()
-                }
-                val bitmap by produceState<Bitmap?>(
-                    initialValue = null, key1 = photoName, key2 = maxDimPx
-                ) {
-                    value = BillPhotoStore.loadForView(context, photoName, VIEWER_MAX_PIXELS)
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    ViewerPhotoPage(photoName = photoNames[page])
                 }
 
-                var scale by remember { mutableFloatStateOf(1f) }
-                var offset by remember { mutableStateOf(Offset.Zero) }
-
-                val bmp = bitmap
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "账单原图",
-                        contentScale = ContentScale.Fit,
+                // 页码指示（多图时显示）
+                if (photoNames.size > 1) {
+                    Text(
+                        text = "${pagerState.currentPage + 1}/${photoNames.size}",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTransformGestures { _, pan, zoom, _ ->
-                                    scale = (scale * zoom).coerceIn(1f, 5f)
-                                    offset = if (scale > 1f) offset + pan else Offset.Zero
-                                }
-                            }
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                translationX = offset.x
-                                translationY = offset.y
-                            }
+                            .align(Alignment.TopCenter)
+                            .padding(top = 12.dp)
+                            .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
                     )
-                } else {
-                    // 解码中/失败：居中转圈
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Color.White)
-                    }
                 }
 
                 // 关闭按钮（半透明胶囊，左上角）
@@ -149,9 +130,12 @@ fun BillPhotoViewer(
                         .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
                 ) {
-                    ViewerAction(icon = Icons.Default.PhotoCamera, label = "重新拍摄", onClick = onRetake)
-                    ViewerAction(icon = Icons.Default.PhotoLibrary, label = "从相册替换", onClick = onPickReplace)
-                    ViewerAction(icon = Icons.Default.Delete, label = "删除图片", onClick = { confirmDelete = true })
+                    ViewerAction(icon = Icons.Default.AddAPhoto, label = "添加图片", onClick = onAdd)
+                    ViewerAction(
+                        icon = Icons.Default.Delete,
+                        label = "删除本张",
+                        onClick = { confirmDelete = true }
+                    )
                 }
             }
         }
@@ -161,17 +145,81 @@ fun BillPhotoViewer(
         GlassCompactDialog(
             onDismissRequest = { confirmDelete = false },
             title = "删除图片",
-            text = { Text("确定删除该账单图片吗？图标将恢复为标题首字。") },
+            text = { Text("确定删除当前这张图片吗？") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
-                    onDelete()
+                    onDeleteCurrent(pagerState.currentPage)
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("取消") }
             }
         )
+    }
+}
+
+/** 单页照片：双击缩放，放大后支持双指缩放/拖动；1x 时不拦截翻页手势 */
+@Composable
+private fun ViewerPhotoPage(photoName: String) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val maxDimPx = with(LocalDensity.current) {
+        maxOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp).roundToPx()
+    }
+    val bitmap by produceState<Bitmap?>(
+        initialValue = null, key1 = photoName, key2 = maxDimPx
+    ) {
+        value = BillPhotoStore.loadForView(context, photoName, VIEWER_MAX_PIXELS)
+    }
+
+    var scale by remember(photoName) { mutableFloatStateOf(1f) }
+    var offset by remember(photoName) { mutableStateOf(Offset.Zero) }
+    val zoomed = scale > 1f
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "账单原图",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        // 双击切换缩放（1x 时不拦截手势，保证左右翻页）
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1f) {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                } else {
+                                    scale = 2.5f
+                                }
+                            }
+                        )
+                    }
+                    .then(
+                        if (zoomed) {
+                            Modifier.pointerInput(photoName) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    scale = (scale * zoom).coerceIn(1f, 5f)
+                                    offset = if (scale > 1f) offset + pan else Offset.Zero
+                                }
+                            }
+                        } else Modifier
+                    )
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    }
+            )
+        } else {
+            // 解码中/失败：居中转圈
+            CircularProgressIndicator(color = Color.White)
+        }
     }
 }
 

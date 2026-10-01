@@ -11,13 +11,15 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * Room database for locally storing bills.
  */
 @Database(
-    entities = [BillEntity::class],
-    version = 3,
+    entities = [BillEntity::class, BillPhotoEntity::class],
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun billDao(): BillDao
+
+    abstract fun billPhotoDao(): BillPhotoDao
 
     companion object {
         @Volatile
@@ -62,6 +64,55 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migrate from v3 to v4:
+         * 一张账单支持多张图片：
+         * 1. 新建 bill_photos 表（billId/fileName/createdAt）
+         * 2. 旧 bills.photoPath 的单图记录搬进 bill_photos
+         * 3. 重建 bills 表去掉 photoPath 列
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS bill_photos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        billId INTEGER NOT NULL,
+                        fileName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bill_photos_billId ON bill_photos(billId)")
+                db.execSQL(
+                    """
+                    INSERT INTO bill_photos (billId, fileName, createdAt)
+                    SELECT id, photoPath, timestamp FROM bills WHERE photoPath IS NOT NULL
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE bills_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        amount REAL NOT NULL,
+                        title TEXT NOT NULL,
+                        isIncome INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO bills_new (id, amount, title, isIncome, timestamp)
+                    SELECT id, amount, title, isIncome, timestamp FROM bills
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE bills")
+                db.execSQL("ALTER TABLE bills_new RENAME TO bills")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bills_timestamp ON bills(timestamp)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -69,7 +120,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "reimbursement_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

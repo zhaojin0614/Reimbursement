@@ -85,8 +85,8 @@ import com.zhaojin.reimbursement.ui.theme.AccentColorRepository
 import com.zhaojin.reimbursement.ui.theme.AccentVariant
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 
-/** xlsx 的标准 MIME（备份导出命名 / 导入过滤共用） */
-private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+/** 备份包的 MIME（zip：表格 + 图片；导入同时兼容旧版 xlsx 与捕账格式） */
+private const val BACKUP_MIME = "application/zip"
 
 /**
  * 设置页：主题色 / 备份恢复 / 版本信息。
@@ -111,7 +111,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     // 备份导出/导入的 SAF 启动器
     val backupBusy by viewModel.backupBusy.collectAsState()
     val exportBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(XLSX_MIME)
+        ActivityResultContracts.CreateDocument(BACKUP_MIME)
     ) { uri -> uri?.let { viewModel.exportBackup(it) } }
     val importBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -345,31 +345,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     BackupActionRow(
                         icon = Icons.Default.TableChart,
-                        title = "导出表格（Excel）",
-                        subtitle = "支出/收入分表，可在电脑上查看",
+                        title = "导出备份（含图片）",
+                        subtitle = "账单表格 + 全部照片打包为 zip，可还原",
                         enabled = !backupBusy,
                         onClick = {
                             showBackupDialog = false
                             val date = java.time.LocalDate.now()
                                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                            exportBackupLauncher.launch("维修报销_备份_$date.xlsx")
+                            exportBackupLauncher.launch("维修报销_备份_$date.zip")
                         }
                     )
                     BackupActionRow(
                         icon = Icons.Default.UploadFile,
                         title = "导入数据（合并）",
-                        subtitle = "与现有账单去重后并入",
+                        subtitle = "与现有账单去重后并入（含图片）",
                         enabled = !backupBusy,
                         onClick = {
                             showBackupDialog = false
                             importOverwrite = false
-                            importBackupLauncher.launch(arrayOf(XLSX_MIME, "application/octet-stream"))
+                            importBackupLauncher.launch(arrayOf(BACKUP_MIME, "application/octet-stream"))
                         }
                     )
                     BackupActionRow(
                         icon = Icons.Default.SettingsBackupRestore,
                         title = "恢复备份（覆盖）",
-                        subtitle = "清空当前账单后按文件重建",
+                        subtitle = "清空当前账单与图片后按文件重建",
                         enabled = !backupBusy,
                         onClick = {
                             showBackupDialog = false
@@ -377,7 +377,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     )
                     Text(
-                        text = "兼容「捕账」导出的备份文件（多余列自动忽略）",
+                        text = "导入兼容 zip 备份与旧版 xlsx（含「捕账」导出，无图片列自动忽略）",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -399,7 +399,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onClick = {
                         showRestoreConfirm = false
                         importOverwrite = true
-                        importBackupLauncher.launch(arrayOf(XLSX_MIME, "application/octet-stream"))
+                        importBackupLauncher.launch(arrayOf(BACKUP_MIME, "application/octet-stream"))
                     }
                 ) { Text("确定恢复", color = MaterialTheme.colorScheme.error) }
             },

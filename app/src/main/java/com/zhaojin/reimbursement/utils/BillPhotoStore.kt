@@ -60,6 +60,19 @@ object BillPhotoStore {
         thumbnailCache.evictAll()
     }
 
+    /** 把字节数据（zip 备份导入等）存为新图片文件，返回文件名；失败返回 null */
+    fun saveBytes(context: Context, data: ByteArray): String? = runCatching {
+        val name = UUID.randomUUID().toString() + ".jpg"
+        fileFor(context, name).writeBytes(data)
+        name
+    }.getOrNull()
+
+    /** 恢复覆盖前清空全部已托管图片文件（pending 临时文件保留） */
+    fun clearAll(context: Context) {
+        photoDir(context).listFiles { f -> !f.name.startsWith(PENDING_PREFIX) }?.forEach { it.delete() }
+        thumbnailCache.evictAll()
+    }
+
     /** 冷启动清扫：删除拍照中断遗留的 pending 临时文件 */
     fun sweepPending(context: Context) {
         photoDir(context).listFiles { f -> f.name.startsWith(PENDING_PREFIX) }?.forEach { it.delete() }
