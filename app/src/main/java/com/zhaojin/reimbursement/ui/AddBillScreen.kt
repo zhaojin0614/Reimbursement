@@ -321,19 +321,9 @@ fun AddBillScreen(
             SoftButton(
                 text = "添加",
                 onClick = {
-                    // 除图片可选外其余必填
-                    val missing = when {
-                        driver.isBlank() -> "请填写驾驶员"
-                        plate.isBlank() -> "请填写车牌号"
-                        title.isBlank() -> "请填写内容"
-                        else -> null
-                    }
-                    if (missing != null) {
-                        Toast.makeText(context, missing, Toast.LENGTH_SHORT).show()
-                        return@SoftButton
-                    }
-                    val amt = amountText.toDoubleOrNull()
-                    if (amt == null || amt <= 0) {
+                    // 所有字段均可留空（金额留空按 0 记）；仅当填了非法金额时提示
+                    val amt = if (amountText.isBlank()) 0.0 else amountText.toDoubleOrNull()
+                    if (amt == null) {
                         Toast.makeText(context, "请填写有效金额", Toast.LENGTH_SHORT).show()
                         return@SoftButton
                     }
@@ -669,7 +659,7 @@ private fun StagedPhotosRow(
         }
         Spacer(modifier = Modifier.weight(1f))
         Text(
-            text = "图片（可选）",
+            text = "图片",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
