@@ -15,6 +15,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipInputStream
+import kotlin.math.roundToInt
 
 /**
  * 账单数据备份管理器。
@@ -35,8 +36,30 @@ object BillBackupManager {
     const val ZIP_IMAGES_DIR = "images/"
     const val PHOTO_HEADER = "图片"
 
-    /** 「图片」列的 0 基列号（BILL_HEADERS 顺序固定），内嵌图片锚点从此列起横排 */
+    /**
+     * 「图片」列的 0 基列号（BILL_HEADERS 顺序固定），内嵌图片锚点从此列起横排
+     */
     private const val PHOTO_COL = 3
+
+    /** 照片显示高度（96dpi 像素）：所有行统一，宽度按原图宽高比换算 */
+    private const val PHOTO_DISPLAY_H_PX = 80
+
+    /** 照片显示宽度上下限，避免极端宽高比撑爆版面 */
+    private const val PHOTO_DISPLAY_W_MIN_PX = 40
+    private const val PHOTO_DISPLAY_W_MAX_PX = 320
+
+    /** 固定列宽（Excel 字符单位）：日期时间 / 标题 / 金额 */
+    private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 40.0, 2 to 10.0)
+
+    /**
+     * 待导出的照片：原始（归一化后）字节 + 原图像素宽高（用于按比例
+     * 计算表格中的显示尺寸，避免拉伸变形）。
+     */
+    data class ExportPhoto(val data: ByteArray, val widthPx: Int, val heightPx: Int)
+
+    /** 96dpi 像素宽 → Excel 列宽字符单位（Calibri 11，MDW=7，标准公式 (px-5)/7） */
+    internal fun colWidthChars(px: Int): Double =
+        kotlin.math.round((px - 5) / 7.0 * 100) / 100
 
     private val OUT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
@@ -94,15 +117,24 @@ object BillBackupManager {
     // ------------------------------------------------------------------
 
     /**
-     * 构建工作簿字节（纯函数，便于单测）：照片作为内嵌图片随表导出；
-     * 「图片」列写张数文本，便于人工核对。
+     * 构建工作簿字节（纯函数，便于单测）。版式：
+     * - 固定列宽 日期时间20 / 标题40 / 金额10，图片列按照片显示宽自适应；
+     * - 行高随照片（80px→60 磅），多张照片横向铺开各占一列；
+     * - 照片按原图宽高比缩放到格子内精确锚定（不变形、恰好填满格子）；
+     * - 表头浅灰底。
      */
     fun buildWorkbook(
         bills: List<BillEntity>,
-        photosByBill: Map<Long, List<ByteArray>>
+        photosByBill: Map<Long, List<ExportPhoto>>
     ): ByteArray {
         fun formatTime(ts: Long) =
             LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault()).format(OUT_FMT)
+
+        fun displayWidthPx(p: ExportPhoto): Int {
+            if (p.widthPx <= 0 || p.heightPx <= 0) return PHOTO_DISPLAY_H_PX
+            return (PHOTO_DISPLAY_H_PX.toDouble() * p.widthPx / p.heightPx)
+                .roundToInt().coerceIn(PHOTO_DISPLAY_W_MIN_PX, PHOTO_DISPLAY_W_MAX_PX)
+        }
 
         fun sheetData(name: String, list: List<BillEntity>): MiniSheet {
             val sorted = list.sortedBy { it.timestamp }
@@ -110,13 +142,29 @@ object BillBackupManager {
                 val n = photosByBill[b.id].orEmpty().size
                 listOf<Any?>(formatTime(b.timestamp), b.title, b.amount, if (n > 0) "${n}张" else null)
             }
-            // 每张照片一个锚点；同账单多张横向排开（D、E、F… 列），互不遮挡
+            // 照片锚点：同账单多张横向排开（D、E、F… 列），每张按宽高比定显示宽
             val images = sorted.flatMapIndexed { rowIdx, b ->
-                photosByBill[b.id].orEmpty().mapIndexed { k, data ->
-                    MiniImage(row = rowIdx + 1, col = PHOTO_COL + k, data = data)
+                photosByBill[b.id].orEmpty().mapIndexed { k, p ->
+                    MiniImage(
+                        row = rowIdx + 1, col = PHOTO_COL + k, data = p.data,
+                        widthPx = displayWidthPx(p), heightPx = PHOTO_DISPLAY_H_PX
+                    )
                 }
             }
-            return MiniSheet(name, rows, images)
+            // 列宽：固定三列 + 图片列取该列所有照片的最大显示宽；行高：有照片的行
+            val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
+            val rowHeights = HashMap<Int, Double>()
+            sorted.forEachIndexed { rowIdx, b ->
+                val photos = photosByBill[b.id].orEmpty()
+                if (photos.isEmpty()) return@forEachIndexed
+                rowHeights[rowIdx + 1] = PHOTO_DISPLAY_H_PX * 0.75 // px → pt
+                photos.forEachIndexed { k, p ->
+                    val col = PHOTO_COL + k
+                    val w = maxOf(colWidths[col] ?: 0.0, colWidthChars(displayWidthPx(p)).toDouble())
+                    colWidths[col] = w
+                }
+            }
+            return MiniSheet(name, rows, images, colWidths, rowHeights, headerFill = true)
         }
 
         return MiniXlsx.write(
@@ -131,7 +179,7 @@ object BillBackupManager {
         context: Context,
         uri: Uri,
         bills: List<BillEntity>,
-        photosByBill: Map<Long, List<ByteArray>>
+        photosByBill: Map<Long, List<ExportPhoto>>
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
             val bytes = buildWorkbook(bills, photosByBill)

@@ -17,13 +17,30 @@ import java.util.zip.ZipOutputStream
  */
 typealias MiniRow = List<Any?>
 
-data class MiniSheet(val name: String, val rows: List<MiniRow>, val images: List<MiniImage> = emptyList())
+data class MiniSheet(
+    val name: String,
+    val rows: List<MiniRow>,
+    val images: List<MiniImage> = emptyList(),
+    /** 列宽（Excel 字符单位，0 基列号 → 宽度），仅写出的列带 customWidth */
+    val colWidths: Map<Int, Double> = emptyMap(),
+    /** 行高（磅，0 基行号 → 高度），仅写出的行带 customHeight */
+    val rowHeights: Map<Int, Double> = emptyMap(),
+    /** 表头行（首行）填充浅灰背景 */
+    val headerFill: Boolean = false
+)
 
 /**
- * 内嵌图片（OOXML drawing 层）：锚定在 (row, col) 单元格（0 基），60px 见方。
- * [data] 须为 JPEG/PNG 字节（媒体扩展名按字节魔数判定，其他格式由调用方先转码）。
+ * 内嵌图片（OOXML drawing 层）：锚定在 (row, col) 单元格（0 基）原点，
+ * 显示尺寸 [widthPx]×[heightPx]（96dpi 像素）。配合与图片等宽的列宽、
+ * 等高的行高，图片即精确填满格子。data 须为 JPEG/PNG 字节。
  */
-data class MiniImage(val row: Int, val col: Int, val data: ByteArray)
+data class MiniImage(
+    val row: Int,
+    val col: Int,
+    val data: ByteArray,
+    val widthPx: Int = 80,
+    val heightPx: Int = 80
+)
 
 /** [MiniXlsx.readWithImages] 的返回：工作表 + 各表内嵌图片（表名 → 物理行 → 字节列表） */
 data class MiniWorkbook(
@@ -46,6 +63,9 @@ object MiniXlsx {
     private const val NS_DOC_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     private const val NS_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
     private const val NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+    /** 96dpi 下 1 像素 = 9525 EMU（drawing 显示尺寸单位） */
+    private const val EMU_PER_PX = 9525
 
     // ------------------------------------------------------------------
     // 写
@@ -151,20 +171,35 @@ object MiniXlsx {
     }
 
     private val STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="$NS_MAIN"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>"""
+<styleSheet xmlns="$NS_MAIN"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>"""
 
     private fun sheetXml(sheet: MiniSheet, drawingRid: String? = null): String = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
-        // drawing 引用按 CT_Worksheet 元素顺序放在 sheetData 之后
-        append("""<worksheet xmlns="$NS_MAIN" xmlns:r="$NS_DOC_REL"><sheetData>""")
+        // CT_Worksheet 元素顺序：cols 在 sheetData 之前，drawing 在其后
+        append("""<worksheet xmlns="$NS_MAIN" xmlns:r="$NS_DOC_REL">""")
+        if (sheet.colWidths.isNotEmpty()) {
+            append("<cols>")
+            sheet.colWidths.toSortedMap().forEach { (col, width) ->
+                append("""<col min="${col + 1}" max="${col + 1}" width="${numberText(width)}" customWidth="1"/>""")
+            }
+            append("</cols>")
+        }
+        append("<sheetData>")
         sheet.rows.forEachIndexed { r, row ->
-            append("""<row r="${r + 1}">""")
+            val height = sheet.rowHeights[r]
+            if (height != null) {
+                append("""<row r="${r + 1}" ht="${numberText(height)}" customHeight="1">""")
+            } else {
+                append("""<row r="${r + 1}">""")
+            }
             row.forEachIndexed { c, cell ->
                 val ref = "${colLetters(c)}${r + 1}"
+                // 表头行非空单元格套浅灰底样式（cellXfs 第 2 项）
+                val style = if (r == 0 && sheet.headerFill && cell != null) """ s="1"""" else ""
                 when (cell) {
                     null -> {}
-                    is Number -> append("""<c r="$ref"><v>${numberText(cell.toDouble())}</v></c>""")
-                    else -> append("""<c r="$ref" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(cell.toString())}</t></is></c>""")
+                    is Number -> append("""<c r="$ref"$style><v>${numberText(cell.toDouble())}</v></c>""")
+                    else -> append("""<c r="$ref"$style t="inlineStr"><is><t xml:space="preserve">${xmlEscape(cell.toString())}</t></is></c>""")
                 }
             }
             append("</row>")
@@ -179,20 +214,24 @@ object MiniXlsx {
 <xdr:wsDr xmlns:xdr="$NS_XDR" xmlns:a="$NS_A">$anchors</xdr:wsDr>"""
 
     /**
-     * 单图锚点（oneCellAnchor）：60px 见方（571500 EMU = 60 × 9525），
-     * (colOff, rowOff) 留少量边距让图片不顶格。
+     * 单图锚点（oneCellAnchor）：从单元格原点起、按 [MiniImage] 显示尺寸铺开，
+     * 不留边距——配合等高行与等宽列即视觉上"图片在格子里"。
      */
-    private fun picAnchor(img: MiniImage, rid: String, picIndex: Int): String = buildString {
-        append("<xdr:oneCellAnchor>")
-        append("<xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>57150</xdr:colOff>")
-        append("<xdr:row>${img.row}</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from>")
-        append("""<xdr:ext cx="571500" cy="571500"/>""")
-        append("""<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="$picIndex" name="图片$picIndex"/>""")
-        append("""<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>""")
-        append("""<xdr:blipFill><a:blip xmlns:r="$NS_DOC_REL" r:embed="$rid"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>""")
-        append("""<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="571500" cy="571500"/></a:xfrm>""")
-        append("""<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>""")
-        append("</xdr:pic><xdr:clientData/></xdr:oneCellAnchor>")
+    private fun picAnchor(img: MiniImage, rid: String, picIndex: Int): String {
+        val cx = img.widthPx * EMU_PER_PX
+        val cy = img.heightPx * EMU_PER_PX
+        return buildString {
+            append("<xdr:oneCellAnchor>")
+            append("<xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>0</xdr:colOff>")
+            append("<xdr:row>${img.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>")
+            append("""<xdr:ext cx="$cx" cy="$cy"/>""")
+            append("""<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="$picIndex" name="图片$picIndex"/>""")
+            append("""<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>""")
+            append("""<xdr:blipFill><a:blip xmlns:r="$NS_DOC_REL" r:embed="$rid"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>""")
+            append("""<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="$cx" cy="$cy"/></a:xfrm>""")
+            append("""<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>""")
+            append("</xdr:pic><xdr:clientData/></xdr:oneCellAnchor>")
+        }
     }
 
     /** 图片扩展名按字节魔数判定；调用方须保证已是 JPEG/PNG（其他格式先转码） */

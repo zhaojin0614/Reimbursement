@@ -47,7 +47,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 val bills = billDao.getAllBillsOnce()
                 val photos = photoDao.getAllOnce()
                     .groupBy { it.billId }
-                    .mapValues { e -> e.value.mapNotNull { BillPhotoStore.readExportBytes(context, it.fileName) } }
+                    .mapValues { e -> e.value.mapNotNull { photo -> readExportPhoto(context, photo.fileName) } }
                 BillBackupManager.exportToUri(context, uri, bills, photos)
                     .onSuccess {
                         val photoCount = photos.values.sumOf { it.size }
@@ -59,6 +59,18 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 _backupBusy.value = false
             }
         }
+    }
+
+    /** 读照片字节并解码像素宽高（只读边界不解码整图），供导出按比例排版 */
+    private fun readExportPhoto(context: android.content.Context, name: String): BillBackupManager.ExportPhoto? {
+        val bytes = BillPhotoStore.readExportBytes(context, name) ?: return null
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        return BillBackupManager.ExportPhoto(
+            data = bytes,
+            widthPx = bounds.outWidth.takeIf { it > 0 } ?: 1,
+            heightPx = bounds.outHeight.takeIf { it > 0 } ?: 1
+        )
     }
 
     fun consumeBackupMessage() {

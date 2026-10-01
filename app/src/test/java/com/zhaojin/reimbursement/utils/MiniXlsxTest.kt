@@ -120,6 +120,45 @@ class MiniXlsxTest {
     }
 
     @Test
+    fun `版式写出 - 列宽行高与表头样式`() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+        val sheet = MiniSheet(
+            name = "版式",
+            rows = listOf(listOf<Any?>("头", null, null), listOf<Any?>("2026-01-01", "x", 1.0)),
+            images = listOf(MiniImage(row = 1, col = 3, data = png, widthPx = 120, heightPx = 80)),
+            colWidths = mapOf(0 to 20.0, 3 to 16.43),
+            rowHeights = mapOf(1 to 60.0),
+            headerFill = true
+        )
+        val bytes = MiniXlsx.write(listOf(sheet))
+        val entry: (String) -> String = { name ->
+            java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(bytes)).use { zip ->
+                var e = zip.nextEntry
+                while (e != null) {
+                    if (e.name == name) return@use zip.readBytes().toString(Charsets.UTF_8)
+                    zip.closeEntry()
+                    e = zip.nextEntry
+                }
+                throw IllegalArgumentException("缺少 $name")
+            }
+        }
+        val sheetXml = entry("xl/worksheets/sheet1.xml")
+        assertTrue(sheetXml.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
+        assertTrue(sheetXml.contains("""<col min="4" max="4" width="16.43" customWidth="1"/>"""))
+        assertTrue(sheetXml.contains("""<row r="2" ht="60" customHeight="1">"""))
+        assertTrue(sheetXml.contains("""<c r="A1" s="1" t="inlineStr">"""))
+        assertTrue(!sheetXml.contains("""<c r="A2" s="1"""))
+        assertTrue(entry("xl/styles.xml").contains("FFF2F2F2"))
+        // 图片显示尺寸按像素换算 EMU：120x80px
+        val drawing = entry("xl/drawings/drawing1.xml")
+        assertTrue(drawing.contains("""cx="${120 * 9525}" cy="${80 * 9525}""""))
+        // 带版式的表读回仍正常（版式仅影响写出，不影响解析）
+        val wb = MiniXlsx.readWithImages(bytes)
+        assertEquals("头", wb.sheets[0].rows[0][0])
+        assertEquals(1, wb.images["版式"]!![1]!!.size)
+    }
+
+    @Test
     fun `图片内嵌 - 兼容Excel重存结构 twoCellAnchor与绝对路径`() {
         val media = "fake-jpeg-bytes"
         val sheet = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

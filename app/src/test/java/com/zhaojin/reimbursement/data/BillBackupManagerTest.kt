@@ -40,11 +40,25 @@ class BillBackupManagerTest {
     private fun fakeImage(name: String): ByteArray =
         byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + "-$name".toByteArray()
 
-    /** 账单1 两张图、账单3 一张图、账单2 无图 */
-    private fun samplePhotos(): Map<Long, List<ByteArray>> = mapOf(
-        1L to listOf(fakeImage("a1"), fakeImage("b2")),
-        3L to listOf(fakeImage("c3"))
+    private fun photo(name: String, w: Int, h: Int) = BillBackupManager.ExportPhoto(fakeImage(name), w, h)
+
+    /** 账单1 两张图（方图+2:1横图）、账单3 一张 1:2 竖图、账单2 无图 */
+    private fun samplePhotos(): Map<Long, List<BillBackupManager.ExportPhoto>> = mapOf(
+        1L to listOf(photo("a1", 100, 100), photo("b2", 200, 100)),
+        3L to listOf(photo("c3", 100, 200))
     )
+
+    private fun unzipEntry(bytes: ByteArray, entry: String): String {
+        java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(bytes)).use { zip ->
+            var e = zip.nextEntry
+            while (e != null) {
+                if (e.name == entry) return zip.readBytes().toString(Charsets.UTF_8)
+                zip.closeEntry()
+                e = zip.nextEntry
+            }
+        }
+        throw IllegalArgumentException("缺少 $entry")
+    }
 
     @Test
     fun `xlsx导出往返 - 照片内嵌按行还原`() {
@@ -81,6 +95,49 @@ class BillBackupManagerTest {
         assertTrue(backup.embedded.isEmpty())
         assertTrue(backup.images.isEmpty())
         assertEquals(3, backup.workbook.bills.size)
+    }
+
+    @Test
+    fun `导出版式 - 列宽行高与表头底色`() {
+        val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
+        val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
+
+        // 固定列宽：日期时间 20 / 标题 40 / 金额 10（min/max 为 1 基）
+        assertTrue(sheet1.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="2" max="2" width="40" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="3" max="3" width="10" customWidth="1"/>"""))
+        // 支出表（按时间排序）：行1=美团(1:2竖图→显示宽40)、行2=京东(方图80+2:1横图160)
+        // 图片列取该列最大显示宽：D 列 max(40,80)=80→10.71，E 列 160→22.14
+        assertTrue(sheet1.contains("""<col min="4" max="4" width="10.71" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="5" max="5" width="22.14" customWidth="1"/>"""))
+        // 有照片的行高 80px → 60 磅（表头占第 1 行，数据行 2、3）
+        assertTrue(sheet1.contains("""<row r="2" ht="60" customHeight="1">"""))
+        assertTrue(sheet1.contains("""<row r="3" ht="60" customHeight="1">"""))
+        // 表头单元格套浅灰底样式 s="1"，数据单元格不带
+        assertTrue(sheet1.contains("""<c r="A1" s="1" t="inlineStr">"""))
+        assertTrue(!sheet1.contains("""<c r="A2" s="1"""))
+        // styles.xml 含浅灰填充与第二个 cellXf
+        val styles = unzipEntry(bytes, "xl/styles.xml")
+        assertTrue(styles.contains("FFF2F2F2"))
+        assertTrue(styles.contains("""<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>"""))
+
+        // 收入表无照片：无图片列宽、无行高，表头仍灰底
+        val sheet2 = unzipEntry(bytes, "xl/worksheets/sheet2.xml")
+        assertTrue(sheet2.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
+        assertTrue(!sheet2.contains("ht="))
+        assertTrue(!sheet2.contains("<drawing"))
+    }
+
+    @Test
+    fun `导出版式 - 图片锚点按宽高比定尺寸`() {
+        val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
+        val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
+        // 竖图 100x200 → 40x80px；方图 100x100 → 80x80px；横图 200x100 → 160x80px
+        assertTrue(drawing.contains("""cx="${40 * 9525}" cy="${80 * 9525}""""))
+        assertTrue(drawing.contains("""cx="${80 * 9525}" cy="${80 * 9525}""""))
+        assertTrue(drawing.contains("""cx="${160 * 9525}" cy="${80 * 9525}""""))
+        // 锚点从格子原点起（0 偏移），图片精确贴合格子
+        assertTrue(drawing.contains("<xdr:colOff>0</xdr:colOff><xdr:row>"))
     }
 
     @Test
