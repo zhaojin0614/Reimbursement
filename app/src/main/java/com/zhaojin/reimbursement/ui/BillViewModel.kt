@@ -37,22 +37,29 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _backupMessage = MutableStateFlow<String?>(null)
     val backupMessage: StateFlow<String?> = _backupMessage
 
-    /** 导出全部账单（照片内嵌）为单个 xlsx（用户经 SAF 选择位置） */
-    fun exportBackup(uri: Uri) {
+    /** 导出时间段账单（照片内嵌）为单个 xlsx；[startMillis, endMillis] 为按日闭区间 */
+    fun exportBackup(uri: Uri, startMillis: Long, endMillis: Long) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
             try {
                 val context = getApplication<Application>()
-                val bills = billDao.getAllBillsOnce()
+                val bills = billDao.getBillsBetween(startMillis, endMillis)
+                val billIds = bills.mapTo(HashSet()) { it.id }
                 val photos = photoDao.getAllOnce()
                     .groupBy { it.billId }
+                    .filterKeys { it in billIds }
                     .mapValues { e -> e.value.mapNotNull { photo -> readExportPhoto(context, photo.fileName) } }
                 BillBackupManager.exportToUri(context, uri, bills, photos)
                     .onSuccess {
                         val photoCount = photos.values.sumOf { it.size }
+                        val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+                        val zone = java.time.ZoneId.systemDefault()
+                        val range =
+                            "${java.time.Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(fmt)}" +
+                            "~${java.time.Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(fmt)}"
                         _backupMessage.value =
-                            "已导出 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                            "已导出 $range 共 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
                     }
                     .onFailure { _backupMessage.value = "导出失败：${it.message}" }
             } finally {

@@ -15,6 +15,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -45,6 +48,9 @@ import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,6 +64,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -96,6 +104,8 @@ import com.zhaojin.reimbursement.ui.components.SoftFab
 import com.zhaojin.reimbursement.ui.components.SoftGradientCard
 import com.zhaojin.reimbursement.ui.components.SwipeableItem
 import com.zhaojin.reimbursement.ui.components.SwipeableItemCoordinator
+import com.zhaojin.reimbursement.ui.components.glassBorder
+import com.zhaojin.reimbursement.ui.components.isDarkTheme
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.GradientExpenseEnd
@@ -109,6 +119,7 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 /** 导出文件的 MIME：单个 xlsx（照片内嵌在工作簿里） */
 private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -212,11 +223,32 @@ fun BillScreen(
         )
     }
 
-    // ── 导出账单（照片内嵌 xlsx，原「备份」入口收进顶栏）────────────────
+    // ── 导出账单（按日时间段，照片内嵌 xlsx，原「备份」入口收进顶栏）──────
     val backupBusy by viewModel.backupBusy.collectAsState()
+    var showExportDialog by remember { mutableStateOf(false) }
+    // 弹窗内的范围草稿：默认本月 1 日 ~ 今天
+    var exportStart by remember { mutableStateOf(java.time.LocalDate.now().withDayOfMonth(1)) }
+    var exportEnd by remember { mutableStateOf(java.time.LocalDate.now()) }
+    var exportPicking by remember { mutableStateOf<String?>(null) } // "start" / "end"
+    // SAF 回调里取用的待导出范围（进程不被杀即有效）
+    var pendingExportStart by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    var pendingExportEnd by remember { mutableStateOf<java.time.LocalDate?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(XLSX_MIME)
-    ) { uri -> uri?.let { viewModel.exportBackup(it) } }
+    ) { uri ->
+        val start = pendingExportStart
+        val end = pendingExportEnd
+        pendingExportStart = null
+        pendingExportEnd = null
+        if (uri != null && start != null && end != null) {
+            val zone = ZoneId.systemDefault()
+            viewModel.exportBackup(
+                uri,
+                start.atStartOfDay(zone).toInstant().toEpochMilli(),
+                end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+            )
+        }
+    }
     LaunchedEffect(Unit) {
         viewModel.backupMessage.collect { message ->
             message?.let {
@@ -226,10 +258,10 @@ fun BillScreen(
         }
     }
 
-    fun launchExport() {
-        val date = java.time.LocalDate.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-        exportBackupLauncher.launch("维修报销_账单_$date.xlsx")
+    fun launchExport(start: java.time.LocalDate, end: java.time.LocalDate) {
+        pendingExportStart = start
+        pendingExportEnd = end
+        exportBackupLauncher.launch("维修报销_账单_${start}_${end}.xlsx")
     }
 
     if (showAddScreen) {
@@ -373,7 +405,7 @@ fun BillScreen(
                             }
                         } else {
                             IconButton(
-                                onClick = { if (!backupBusy) launchExport() },
+                                onClick = { if (!backupBusy) showExportDialog = true },
                                 enabled = !backupBusy
                             ) {
                                 Icon(
@@ -730,6 +762,84 @@ fun BillScreen(
         )
     }
 
+    // ── 导出：按日时间段选择 ─────────────────────────────────────────────
+    if (showExportDialog) {
+        val dateFmt = remember { java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd") }
+        GlassCompactDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = "导出账单",
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "选择要导出的时间段（按日，含当天）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ExportDateRow("开始日期", exportStart, dateFmt) { exportPicking = "start" }
+                    ExportDateRow("结束日期", exportEnd, dateFmt) { exportPicking = "end" }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExportDialog = false
+                    launchExport(exportStart, exportEnd)
+                }) { Text("导出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // ── 导出：日期选择器（开始/结束联动：不允许开始晚于结束）──────────────
+    if (exportPicking != null) {
+        key(exportPicking) {
+            val initial = if (exportPicking == "start") exportStart else exportEnd
+            val todayMillis = remember {
+                LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            }
+            val datePickerState = rememberDatePickerState(
+                initialSelectedDateMillis =
+                    initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                selectableDates = object : SelectableDates {
+                    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                        utcTimeMillis <= todayMillis
+                }
+            )
+            DatePickerDialog(
+                onDismissRequest = { exportPicking = null },
+                modifier = Modifier.border(glassBorder(), RoundedCornerShape(28.dp)),
+                shape = RoundedCornerShape(28.dp),
+                colors = DatePickerDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(
+                        alpha = if (isDarkTheme()) 0.90f else 0.93f
+                    )
+                ),
+                confirmButton = {
+                    TextButton(onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val picked = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC).toLocalDate()
+                            if (exportPicking == "start") {
+                                exportStart = picked
+                                if (exportEnd < picked) exportEnd = picked
+                            } else {
+                                exportEnd = picked
+                                if (exportStart > picked) exportStart = picked
+                            }
+                        }
+                        exportPicking = null
+                    }) { Text("确定") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { exportPicking = null }) { Text("取消") }
+                }
+            ) {
+                DatePicker(state = datePickerState)
+            }
+        }
+    }
+
     // Single item delete confirmation
     if (showDeleteDialog && billToDelete != null) {        GlassCompactDialog(
             onDismissRequest = {
@@ -1078,5 +1188,44 @@ private fun formatDayHeader(date: LocalDate): String {
         now -> "$dayStr 今天"
         now.minusDays(1) -> "$dayStr 昨天"
         else -> "$dayStr $dayOfWeek"
+    }
+}
+
+/** 导出行组件：日期选择行（标签 + 右侧当前日期，点击弹出选择器） */
+@Composable
+private fun ExportDateRow(
+    label: String,
+    date: LocalDate,
+    fmt: java.time.format.DateTimeFormatter,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.DateRange,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = date.format(fmt),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
     }
 }

@@ -31,6 +31,10 @@ interface BillDao {
     @Query("SELECT * FROM bills")
     suspend fun getAllBillsOnce(): List<BillEntity>
 
+    /** 导出时间范围查询：[start, end] 闭区间（毫秒），按时间正序 */
+    @Query("SELECT * FROM bills WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC")
+    suspend fun getBillsBetween(start: Long, end: Long): List<BillEntity>
+
     /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤与条数分页 */
     @Query(
         """
