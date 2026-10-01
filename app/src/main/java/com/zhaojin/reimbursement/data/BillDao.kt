@@ -10,45 +10,41 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface BillDao {
 
-    @Query("SELECT * FROM bills WHERE timestamp >= :since ORDER BY timestamp DESC")
-    fun getBillsSince(since: Long): Flow<List<BillEntity>>
-
     /**
-     * 按类型/分类直接查库（记账页筛选用），按条数分页（LIMIT）。
-     * 与「全部」视图的时间窗口分页不同：筛选若也按周窗口切，
-     * 窗口内没有目标类型账单时结果会恒空（如最近一周无收入却筛选收入），
-     * 故按时间倒序取前 [limit] 条匹配记录，滚动到底再增大 limit。
-     * 传 null 表示该维度不过滤。
+     * 记账页账单列表：按时间倒序条数分页（LIMIT）。所有筛选视图共用，
+     * 传 null 表示该维度不过滤。条数分页对回填旧日期的账单同样可见
+     * （时间窗口分页会让窗口外的历史账单在「全部」视图消失）。
      */
     @Query(
         """SELECT * FROM bills
            WHERE (:type IS NULL OR isIncome = :type)
-             AND (:category IS NULL OR category = :category)
            ORDER BY timestamp DESC
            LIMIT :limit"""
     )
-    fun getBillsFiltered(type: Boolean?, category: String?, limit: Int): Flow<List<BillEntity>>
+    fun getBillsFiltered(type: Boolean?, limit: Int): Flow<List<BillEntity>>
+
+    /** 报表时间范围查询：自某时点（如当前周期往前 5 个周期）起的全部账单 */
+    @Query("SELECT * FROM bills WHERE timestamp >= :since ORDER BY timestamp DESC")
+    fun getBillsSince(since: Long): Flow<List<BillEntity>>
 
     /** 全量账单（备份导入时做指纹去重用） */
     @Query("SELECT * FROM bills")
     suspend fun getAllBillsOnce(): List<BillEntity>
 
-    /** 关键词搜索：标题/分类模糊匹配 + 金额文本匹配，带类型/分类过滤与条数分页 */
+    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤与条数分页 */
     @Query(
         """
         SELECT * FROM bills
         WHERE (
             title LIKE '%' || :query || '%'
-            OR category LIKE '%' || :query || '%'
             OR CAST(amount AS TEXT) LIKE '%' || :query || '%'
         )
         AND (:type IS NULL OR isIncome = :type)
-        AND (:category IS NULL OR category = :category)
         ORDER BY timestamp DESC
         LIMIT :limit
         """
     )
-    fun searchBills(query: String, type: Boolean?, category: String?, limit: Int): Flow<List<BillEntity>>
+    fun searchBills(query: String, type: Boolean?, limit: Int): Flow<List<BillEntity>>
 
     @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0")
     fun getTotalExpense(): Flow<Double?>
@@ -77,9 +73,6 @@ interface BillDao {
     @Update
     suspend fun update(bill: BillEntity)
 
-    @Query("UPDATE bills SET category = :category WHERE id = :id")
-    suspend fun updateCategory(id: Long, category: String)
-
     @Query("UPDATE bills SET title = :title WHERE id = :id")
     suspend fun updateTitle(id: Long, title: String)
 
@@ -88,14 +81,6 @@ interface BillDao {
 
     @Query("DELETE FROM bills WHERE id = :id")
     suspend fun deleteById(id: Long)
-
-    @Query("SELECT * FROM bills WHERE category = :category AND isIncome = :isIncome AND timestamp >= :startTime AND timestamp < :endTime ORDER BY timestamp DESC")
-    fun getBillsByCategoryAndTimeRange(
-        isIncome: Boolean,
-        category: String,
-        startTime: Long,
-        endTime: Long
-    ): Flow<List<BillEntity>>
 
     @Query("DELETE FROM bills")
     suspend fun deleteAll()

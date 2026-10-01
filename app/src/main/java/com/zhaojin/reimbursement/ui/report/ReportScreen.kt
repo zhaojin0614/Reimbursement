@@ -40,7 +40,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -53,16 +52,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.sin
 
 import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SliderStiffness
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.gradientBrush
-import com.zhaojin.reimbursement.ui.getCategoryColor
-import com.zhaojin.reimbursement.ui.getCategoryIconRes
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.IncomeGreen
@@ -120,19 +115,6 @@ fun ReportScreen(
     val periodType by viewModel.periodType.collectAsState()
     val showIncome by viewModel.showIncome.collectAsState()
     val currentOffset by viewModel.currentOffset.collectAsState()
-
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
-
-    if (selectedCategory != null) {
-        CategoryDetailScreen(
-            category = selectedCategory!!,
-            isIncome = showIncome,
-            startTime = uiState.periodStartMillis,
-            endTime = uiState.periodEndMillis,
-            onBack = { selectedCategory = null }
-        )
-        return
-    }
 
     var showCustomRangePicker by remember { mutableStateOf(false) }
 
@@ -277,16 +259,6 @@ fun ReportScreen(
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(ComponentGap))
-
-                // Category breakdown
-                CategorySection(
-                    showIncome = showIncome,
-                    data = uiState.categoryData,
-                    onItemClick = { category -> selectedCategory = category },
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
 
                 Spacer(modifier = Modifier.height(80.dp))
                 }
@@ -1087,254 +1059,6 @@ private fun EmptyChartState(message: String) {
                 color = LocalReportColors.current.textGray
             )
         }
-    }
-}
-
-@Composable
-private fun CategorySection(
-    showIncome: Boolean,
-    data: List<ReportViewModel.CategoryStat>,
-    onItemClick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    title: String? = null
-) {
-    SoftCard(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = LocalReportColors.current.cardBg,
-        contentPadding = 16.dp
-    ) {
-        SectionTitle(title ?: if (showIncome) "收入分类构成" else "支出分类构成")
-
-        if (data.isNotEmpty()) {
-            DonutChartWithLabels(
-                data = data,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-            )
-            Spacer(modifier = Modifier.height(ComponentGap))
-            data.forEachIndexed { index, stat ->
-                CategoryListItem(
-                    rank = index + 1,
-                    stat = stat,
-                    showIncome = showIncome,
-                    onClick = { onItemClick(stat.category) }
-                )
-                if (index < data.lastIndex) {
-                    HorizontalDivider(
-                        color = LocalReportColors.current.divider,
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(vertical = ComponentGap / 2)
-                    )
-                }
-            }
-        } else {
-            EmptyChartState("暂无${if (showIncome) "收入" else "支出"}数据")
-        }
-    }
-}
-
-@Composable
-private fun DonutChartWithLabels(
-    data: List<ReportViewModel.CategoryStat>,
-    modifier: Modifier = Modifier
-) {
-    val textMeasurer = rememberTextMeasurer()
-    val colors = LocalReportColors.current
-
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val centerX = size.width / 2
-            val centerY = size.height / 2
-            val radius = (size.width.coerceAtMost(size.height) / 2) * 0.65f
-            val strokeWidth = radius * 0.35f
-
-            var startAngle = -90f
-            data.forEachIndexed { index, stat ->
-                val sweepAngle = (stat.percentage * 360).toFloat()
-                val arcColor = getCategoryColor(stat.category)
-                drawArc(
-                    color = arcColor,
-                    startAngle = startAngle,
-                    sweepAngle = sweepAngle,
-                    useCenter = false,
-                    topLeft = Offset(centerX - radius, centerY - radius),
-                    size = Size(radius * 2, radius * 2),
-                    style = Stroke(width = strokeWidth)
-                )
-
-                if (data.size <= 6 || stat.percentage >= 0.05) {
-                    val midAngle = startAngle + sweepAngle / 2
-                    val midRad = Math.toRadians(midAngle.toDouble())
-                    val labelRadius = radius + strokeWidth / 2 + 18.dp.toPx()
-                    val labelX = centerX + (labelRadius * cos(midRad)).toFloat()
-                    val labelY = centerY + (labelRadius * sin(midRad)).toFloat()
-
-                    val text = "${stat.category} ${String.format("%.1f", stat.percentage * 100)}%"
-                    val textStyle = TextStyle(fontSize = 10.sp, color = colors.textGray)
-                    val textResult = textMeasurer.measure(text = text, style = textStyle)
-
-                    val textOffset = if (labelX < centerX) {
-                        Offset(
-                            labelX - textResult.size.width - 4f,
-                            labelY - textResult.size.height / 2
-                        )
-                    } else {
-                        Offset(labelX + 4f, labelY - textResult.size.height / 2)
-                    }
-
-                    val lineStartX =
-                        centerX + ((radius + strokeWidth / 2) * cos(midRad)).toFloat()
-                    val lineStartY =
-                        centerY + ((radius + strokeWidth / 2) * sin(midRad)).toFloat()
-                    val lineEndX = if (labelX < centerX) {
-                        textOffset.x + textResult.size.width + 2f
-                    } else {
-                        textOffset.x - 2f
-                    }
-                    val lineEndY = labelY
-
-                    drawLine(
-                        color = arcColor,
-                        start = Offset(lineStartX, lineStartY),
-                        end = Offset(lineEndX, lineEndY),
-                        strokeWidth = 1f
-                    )
-
-                    drawText(
-                        textMeasurer = textMeasurer,
-                        text = text,
-                        topLeft = textOffset,
-                        style = textStyle
-                    )
-                }
-
-                startAngle += sweepAngle
-            }
-        }
-    }
-}
-
-@Composable
-private fun CategoryListItem(
-    rank: Int,
-    stat: ReportViewModel.CategoryStat,
-    showIncome: Boolean = false,
-    onClick: () -> Unit = {}
-) {
-    val color = getCategoryColor(stat.category)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "$rank",
-            fontSize = 13.sp,
-            color = LocalReportColors.current.textGray,
-            modifier = Modifier.width(20.dp),
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            val iconRes = getCategoryIconRes(stat.category)
-            if (iconRes != 0) {
-                Icon(
-                    painter = painterResource(id = iconRes),
-                    contentDescription = stat.category,
-                    modifier = Modifier.size(18.dp),
-                    tint = color
-                )
-            } else {
-                Text(
-                    text = stat.category.take(1),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = color
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stat.category,
-                    fontSize = 14.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = LocalReportColors.current.textDark,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "${stat.count}笔",
-                    fontSize = 11.sp,
-                    lineHeight = 18.sp,
-                    color = LocalReportColors.current.textGray,
-                    maxLines = 1
-                )
-            }
-            stat.prevAmount?.let { prev ->
-                if (prev > 0 && stat.amount != prev) {
-                    val deltaPct = (stat.amount - prev) / prev * 100
-                    Text(
-                        text = "较上期 %+.1f%%".format(deltaPct),
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
-                        color = if ((deltaPct > 0) == showIncome) IncomeGreen else ExpenseRed
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(LocalReportColors.current.divider)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(stat.percentage.toFloat())
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(color)
-                )
-            }
-        }
-        Text(
-            text = "${String.format("%.1f", stat.percentage * 100)}%",
-            fontSize = 12.sp,
-            color = LocalReportColors.current.textGray,
-            modifier = Modifier.width(40.dp),
-            textAlign = TextAlign.End
-        )
-        Spacer(modifier = Modifier.width(5.dp))
-        Text(
-            text = "¥${String.format("%.2f", stat.amount)}",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = LocalReportColors.current.textDark,
-            modifier = Modifier.width(85.dp),
-            textAlign = TextAlign.End
-        )
-        Icon(
-            imageVector = Icons.Default.KeyboardArrowRight,
-            contentDescription = null,
-            tint = LocalReportColors.current.textGray,
-            modifier = Modifier.size(16.dp)
-        )
     }
 }
 

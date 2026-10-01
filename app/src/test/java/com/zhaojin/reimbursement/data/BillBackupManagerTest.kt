@@ -15,17 +15,17 @@ class BillBackupManagerTest {
     private fun sampleBills(): List<BillEntity> = listOf(
         BillEntity(
             id = 1, amount = 30.38, title = "京东支付",
-            category = "购物消费", isIncome = false,
+            isIncome = false,
             timestamp = ts(LocalDateTime.of(2026, 8, 30, 22, 31, 5))
         ),
         BillEntity(
             id = 2, amount = 8500.0, title = "8月工资",
-            category = "工资薪金", isIncome = true,
+            isIncome = true,
             timestamp = ts(LocalDateTime.of(2026, 8, 10, 9, 0, 0))
         ),
         BillEntity(
             id = 3, amount = 25.6, title = "美团外卖",
-            category = "餐饮美食", isIncome = false,
+            isIncome = false,
             timestamp = ts(LocalDateTime.of(2026, 8, 29, 18, 40, 0))
         )
     )
@@ -45,7 +45,6 @@ class BillBackupManagerTest {
 
         val jd = expense.first { it.title == "京东支付" }
         assertEquals(30.38, jd.amount, 1e-9)
-        assertEquals("购物消费", jd.category)
         assertEquals(
             ts(LocalDateTime.of(2026, 8, 30, 22, 31, 5)), jd.timestamp
         )
@@ -55,16 +54,16 @@ class BillBackupManagerTest {
     }
 
     @Test
-    fun `解析 - 乱序表头与多余列不受影响（兼容捕账备份）`() {
+    fun `解析 - 乱序表头与多余列不受影响（兼容捕账与旧版备份）`() {
         val bytes = BillBackupManager.buildWorkbook(sampleBills())
         val sheets = com.zhaojin.reimbursement.utils.MiniXlsx.read(bytes)
-        // 模拟「捕账」导出的备份：列更多（平台/来源应用等）且顺序不同，
+        // 模拟「捕账」/旧版导出的备份：含 分类/平台/来源应用 等多余列，
         // 验证按列名映射、多余列自动忽略
         val extraHeaders: List<Any?> = listOf("日期时间", "分类", "标题", "金额", "平台", "来源应用", "次要来源", "来源包名", "次要包名")
         val expense = sheets.first { it.name == BillBackupManager.SHEET_EXPENSE }
         val permutedRows = expense.rows.drop(1).map { row ->
             listOf<Any?>(
-                row[0], row[1], row[2], row[3],
+                row[0], "餐饮美食", row[1], row[2],
                 "微信钱包", "京东", "", "com.jingdong", ""
             )
         }
@@ -77,7 +76,6 @@ class BillBackupManagerTest {
         val parsed = BillBackupManager.parseWorkbook(reBytes)
         val jd = parsed.bills.first { it.title == "京东支付" }
         assertEquals(30.38, jd.amount, 1e-9)
-        assertEquals("购物消费", jd.category)
     }
 
     @Test
@@ -87,8 +85,8 @@ class BillBackupManagerTest {
         val sheets = com.zhaojin.reimbursement.utils.MiniXlsx.read(bytes)
         val expense = sheets.first { it.name == BillBackupManager.SHEET_EXPENSE }
         val badRows = expense.rows + listOf(
-            listOf<Any?>("不是日期", "餐饮美食", "坏行一", 10.0),
-            listOf<Any?>("2026-08-29 18:40:00", "餐饮美食", "坏行二", 0.0)
+            listOf<Any?>("不是日期", "坏行一", 10.0),
+            listOf<Any?>("2026-08-29 18:40:00", "坏行二", 0.0)
         )
         val reBytes = com.zhaojin.reimbursement.utils.MiniXlsx.write(
             listOf(

@@ -72,86 +72,58 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         _backupMessage.value = null
     }
 
-    private val _weeksToLoad = MutableStateFlow(1)
-
     companion object {
-        /** 筛选视图每页条数（按时间倒序的 LIMIT 分页） */
-        private const val FILTER_PAGE_SIZE = 30
+        /** 列表每页条数（按时间倒序的 LIMIT 分页） */
+        private const val PAGE_SIZE = 30
     }
 
-    // ── 记账页筛选状态（null = 不过滤该维度）────────────────────────────
+    // ── 记账页筛选状态（null = 全部，不过滤类型）────────────────────────
     private val _typeFilter = MutableStateFlow<Boolean?>(null)     // true=收入 false=支出
-    private val _categoryFilter = MutableStateFlow<String?>(null)
-    private val _filterLimit = MutableStateFlow(FILTER_PAGE_SIZE)
+    private val _limit = MutableStateFlow(PAGE_SIZE)
     private val _searchQuery = MutableStateFlow("")
 
-    /** UI 调用：切换 全部/支出/收入 类型筛选（重置筛选分页） */
+    /** UI 调用：切换 全部/支出/收入 类型筛选（重置分页） */
     fun setTypeFilter(typeLabel: String?) {
         _typeFilter.value = when (typeLabel) {
             "收入" -> true
             "支出" -> false
             else -> null
         }
-        _filterLimit.value = FILTER_PAGE_SIZE
-    }
-
-    /** UI 调用：切换分类筛选（null/「全部」= 不过滤；重置筛选分页） */
-    fun setCategoryFilter(category: String?) {
-        _categoryFilter.value = category?.takeIf { it != "全部" }
-        _filterLimit.value = FILTER_PAGE_SIZE
+        _limit.value = PAGE_SIZE
     }
 
     /** UI 调用：设置账单搜索关键词（空 = 关闭搜索） */
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
-        _filterLimit.value = FILTER_PAGE_SIZE
+        _limit.value = PAGE_SIZE
     }
 
-    /**
-     * 记账页账单列表，两种分页策略：
-     *
-     * - 无任何筛选：按周时间窗口分页（[_weeksToLoad]，默认最近 1 周，
-     *   滚动到底加载更多周），避免全量列表常驻内存；
-     * - 有筛选：按条数 LIMIT 分页（[_filterLimit]，默认 30 条，滚动到底
-     *   增大 limit）。不能用周窗口切筛选——窗口内没有目标类型账单时
-     *   结果会恒空（如最近一周无收入却筛选收入），条数分页没有此问题。
-     */
     /** 一次账单列表查询的全部参数（任一变化即重查） */
     private data class BillQuery(
         val type: Boolean?,
-        val category: String?,
-        val weeks: Int,
-        val filterLimit: Int,
+        val limit: Int,
         val query: String
     )
 
+    /**
+     * 记账页账单列表：统一按时间倒序条数分页（LIMIT）。
+     * 不用时间窗口切「全部」视图——窗口外补记的历史账单会在「全部」里
+     * 隐身（而筛选视图能看到），条数分页没有此不一致问题。
+     */
     val bills: StateFlow<List<BillEntity>> = combine(
-        _typeFilter, _categoryFilter, _weeksToLoad, _filterLimit, _searchQuery, ::BillQuery
+        _typeFilter, _limit, _searchQuery, ::BillQuery
     ).flatMapLatest { q ->
         when {
-            // 搜索优先：关键词命中标题/分类/金额文本
+            // 搜索优先：关键词命中标题/金额文本
             q.query.isNotBlank() ->
-                billDao.searchBills(q.query.trim(), q.type, q.category, q.filterLimit)
-            q.type == null && q.category == null -> {
-                val since = System.currentTimeMillis() - q.weeks * 7L * 24 * 60 * 60 * 1000
-                billDao.getBillsSince(since)
-            }
-            else -> billDao.getBillsFiltered(q.type, q.category, q.filterLimit)
+                billDao.searchBills(q.query.trim(), q.type, q.limit)
+            else -> billDao.getBillsFiltered(q.type, q.limit)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 滚动到底部加载更多：无筛选时扩周窗口，有筛选时增大条数分页 */
+    /** 滚动到底部加载更多：增大条数分页 */
     fun loadMore() {
-        if (_typeFilter.value != null || _categoryFilter.value != null || _searchQuery.value.isNotBlank()) {
-            _filterLimit.value += FILTER_PAGE_SIZE
-        } else {
-            loadMoreWeeks()
-        }
-    }
-
-    fun loadMoreWeeks() {
-        // 上限 520 周（约 10 年），防止异常数据导致窗口无限膨胀
-        if (_weeksToLoad.value < 520) _weeksToLoad.value += 1
+        _limit.value += PAGE_SIZE
     }
 
     val totalExpense: StateFlow<Double> = billDao.getTotalExpense()
@@ -243,12 +215,6 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     fun addBill(bill: BillEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             billDao.insert(bill)
-        }
-    }
-
-    fun updateCategory(id: Long, category: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            billDao.updateCategory(id, category)
         }
     }
 

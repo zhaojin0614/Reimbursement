@@ -69,33 +69,6 @@ val ReportTextDark = Color(0xFF2A3833)
 val ReportDivider = Color(0xFFE6EDEA)
 val ReportNeutralGray = Color(0xFFE7EEEA)
 
-// 支出类别颜色（12个大类）— softened palette
-val CategoryFood = Color(0xFFF0A24A)        // 餐饮美食
-val CategoryTransport = Color(0xFF55B28C)   // 交通出行
-val CategoryShopping = Color(0xFF7D8FF2)    // 购物消费
-val CategoryEntertainment = Color(0xFFEE7BA6) // 休闲娱乐
-val CategoryLiving = Color(0xFF5BA8D8)      // 居家生活
-val CategoryMedical = Color(0xFFA97BD6)     // 医疗健康
-val CategoryEducation = Color(0xFFF2B84B)   // 教育培训
-val CategorySocial = Color(0xFF7B7FD6)      // 人情往来
-val CategoryBeauty = Color(0xFFEF8C8C)      // 美容护肤
-val CategoryPet = Color(0xFF9B8CE8)         // 宠物
-val CategoryFinance = Color(0xFF48B895)     // 金融保险
-val CategoryUncategorized = Color(0xFF98A4A1) // 其他支出
-
-// 收入类别颜色（8个大类）
-val CategorySalary = Color(0xFF3FAE7E)      // 工资薪金
-val CategoryParttime = Color(0xFF5B9BD8)    // 兼职副业
-val CategoryInvestment = Color(0xFFF0A24A)  // 投资理财
-val CategoryRental = Color(0xFFA97BD6)      // 租金收入
-val CategoryRefund = Color(0xFF4CB5C0)      // 退款返现
-val CategoryRedPacket = Color(0xFFEE7B6C)   // 红包转账
-val CategoryReimbursement = Color(0xFFA58C6D) // 报销补贴
-val CategoryOtherIncome = Color(0xFF7C8B98) // 其他收入
-
-// 向后兼容别名（旧版分类名映射）
-val CategoryBills = CategoryLiving
-
 // Gradient stops for soft hero cards
 val GradientExpenseStart = Color(0xFFEF7D6A)
 val GradientExpenseEnd = Color(0xFFF2A29B)

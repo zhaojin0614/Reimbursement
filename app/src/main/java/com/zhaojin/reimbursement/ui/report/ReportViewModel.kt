@@ -188,7 +188,6 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
             balance = balance,
             trendData = calculateTrendData(currentBills, type, showIncome, offset, custom),
             barData = calculateBarData(bills, type, showIncome, offset),
-            categoryData = calculateCategoryData(currentBills, prevBills, showIncome),
             currentIncome = currentIncome,
             currentExpense = currentExpense,
             currentYear = currentRange.start.year,
@@ -322,30 +321,6 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun calculateCategoryData(
-        currentBills: List<BillEntity>,
-        prevBills: List<BillEntity>,
-        showIncome: Boolean
-    ): List<CategoryStat> {
-        val current = currentBills.filter { it.isIncome == showIncome }
-        val prevByCategory = prevBills.filter { it.isIncome == showIncome }
-            .groupBy { it.category }
-            .mapValues { entry -> entry.value.sumOf { it.amount } }
-        val total = current.sumOf { it.amount }.takeIf { it > 0 } ?: return emptyList()
-        return current.groupBy { it.category }
-            .map { (category, list) ->
-                val amount = list.sumOf { it.amount }
-                CategoryStat(
-                    category,
-                    amount,
-                    list.size,
-                    amount / total,
-                    prevByCategory[category] ?: 0.0
-                )
-            }
-            .sortedByDescending { it.amount }
-    }
-
     private fun getWeekRange(date: LocalDate): DateRange {
         val start = date.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1)
         val end = start.plusDays(6)
@@ -387,7 +362,6 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val balance: Double = 0.0,
         val trendData: List<TrendPoint> = emptyList(),
         val barData: List<BarPoint> = emptyList(),
-        val categoryData: List<CategoryStat> = emptyList(),
         val currentIncome: Double = 0.0,
         val currentExpense: Double = 0.0,
         val currentYear: Int = java.time.LocalDate.now().year,
@@ -400,14 +374,6 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
 
     data class TrendPoint(val label: String, val amount: Double, val dateKey: String)
     data class BarPoint(val label: String, val amount: Double, val tooltipLabel: String)
-    data class CategoryStat(
-        val category: String,
-        val amount: Double,
-        val count: Int,
-        val percentage: Double,
-        /** 上一周期的同项金额（环比对比用） */
-        val prevAmount: Double? = null
-    )
     data class DateRange(
         val start: LocalDate,
         val end: LocalDate,

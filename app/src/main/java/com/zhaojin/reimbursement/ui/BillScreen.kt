@@ -11,16 +11,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,15 +27,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -77,13 +70,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,16 +84,11 @@ import com.zhaojin.reimbursement.R
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.PillToggle
-import com.zhaojin.reimbursement.ui.components.SoftButton
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.SoftFab
 import com.zhaojin.reimbursement.ui.components.SoftGradientCard
 import com.zhaojin.reimbursement.ui.components.SwipeableItem
 import com.zhaojin.reimbursement.ui.components.SwipeableItemCoordinator
-import com.zhaojin.reimbursement.ui.components.glassBorder
-import com.zhaojin.reimbursement.ui.components.glassFill
-import com.zhaojin.reimbursement.ui.components.glassHighlightBrush
-import com.zhaojin.reimbursement.ui.components.gradientBrush
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.GradientExpenseEnd
@@ -135,7 +120,6 @@ fun BillScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var billToDelete by remember { mutableStateOf<BillEntity?>(null) }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
     var selectedType by remember { mutableStateOf<String?>(null) } // null/全部, 支出, 收入
     var showAddDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
@@ -152,23 +136,9 @@ fun BillScreen(
         return
     }
 
-    val expenseCategories = listOf("全部") + ExpenseCategories.all
-    val incomeCategories = listOf("全部") + IncomeCategories.all
-    val allCategories = expenseCategories + incomeCategories.drop(1) // 去重后的全部
-
-    val categories = remember(selectedType) {
-        when (selectedType) {
-            "支出" -> expenseCategories
-            "收入" -> incomeCategories
-            else -> allCategories
-        }
-    }
-
-    // 筛选条件下沉到 ViewModel 直接查库（类型/分类变化即重查）：
-    // 「全部」走时间窗口分页，筛选走条数分页，均为滚动加载更多
-    LaunchedEffect(selectedType, selectedCategory) {
+    // 类型筛选下沉到 ViewModel 直接查库（类型变化即重查）
+    LaunchedEffect(selectedType) {
         viewModel.setTypeFilter(selectedType)
-        viewModel.setCategoryFilter(selectedCategory)
     }
 
     // Pull-down stats panel
@@ -389,37 +359,11 @@ fun BillScreen(
                             2 -> "收入"
                             else -> null
                         }
-                        // 类型切换后分类列表整组变化，旧的分类选择必然失配
-                        // （如残留支出分类时切到收入 → 列表恒空），重置为全部
-                        selectedCategory = null
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                 )
-
-                Spacer(modifier = Modifier.height(ComponentGap))
-
-                // Category Filter Chips
-                // padding 必须放在 horizontalScroll 之后：滚动容器会在自身边界裁剪
-                // 内容，第一颗 chip 的描边/阴影贴着边界会被切出一条平边
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    categories.forEach { cat ->
-                        val isSelected = selectedCategory == cat || (selectedCategory == null && cat == "全部")
-                        CategoryChip(
-                            label = cat,
-                            isSelected = isSelected,
-                            onClick = { selectedCategory = if (cat == "全部") null else cat },
-                            showIcon = true
-                        )
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(ComponentGap))
 
@@ -458,7 +402,7 @@ fun BillScreen(
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (searchText.isEmpty()) {
                                             Text(
-                                                text = "搜索标题 / 分类 / 金额",
+                                                text = "搜索标题 / 金额",
                                                 fontSize = 13.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -528,13 +472,6 @@ fun BillScreen(
                                         viewModel.enterSelectionMode(bill.id)
                                     }
                                 },
-                                onCategoryClick = { bill ->
-                                    if (!isSelectionMode) {
-                                        // 点分类标签 = 打开同一个综合编辑界面
-                                        billToEdit = bill
-                                        showEditDialog = true
-                                    }
-                                },
                                 onDelete = { bill ->
                                     billToDelete = bill
                                     showDeleteDialog = true
@@ -558,7 +495,7 @@ fun BillScreen(
         )
     }
 
-    // Edit bill dialog：标题/金额/分类一个界面改完
+    // Edit bill dialog：标题/金额一个界面改完
     if (showEditDialog && billToEdit != null) {
         val bill = billToEdit!!
         var editTitle by remember(bill.id) { mutableStateOf(bill.title) }
@@ -568,12 +505,10 @@ fun BillScreen(
                 else bill.amount.toString()
             )
         }
-        var editCategory by remember(bill.id) { mutableStateOf(bill.category) }
 
         val titleChanged = editTitle.isNotBlank() && editTitle.trim() != bill.title
         val amountChanged = (editAmount.toDoubleOrNull() ?: bill.amount) != bill.amount
-        val categoryChanged = editCategory != bill.category
-        val hasChanges = titleChanged || amountChanged || categoryChanged
+        val hasChanges = titleChanged || amountChanged
 
         GlassCompactDialog(
             onDismissRequest = {
@@ -609,20 +544,6 @@ fun BillScreen(
                             fontWeight = FontWeight.Bold
                         )
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    BillEditColumn(title = "分类", modifier = Modifier.fillMaxWidth()) {
-                        val availableCategories = if (bill.isIncome) IncomeCategories.all
-                        else ExpenseCategories.all
-                        availableCategories.forEach { cat ->
-                            BillEditChip(
-                                label = cat,
-                                dotColor = getCategoryColor(cat),
-                                selected = cat == editCategory,
-                                onClick = { editCategory = cat }
-                            )
-                        }
-                    }
                 }
             },
             confirmButton = {
@@ -632,7 +553,6 @@ fun BillScreen(
                         if (amountChanged) {
                             editAmount.toDoubleOrNull()?.let { viewModel.updateAmount(bill.id, it) }
                         }
-                        if (categoryChanged) viewModel.updateCategory(bill.id, editCategory)
                         showEditDialog = false
                         billToEdit = null
                     },
@@ -875,47 +795,6 @@ fun BillStatItem(
 }
 
 @Composable
-fun CategoryChip(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    showIcon: Boolean = false
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.92f) else glassFill(),
-        shadowElevation = 0.dp,
-        modifier = Modifier
-            .clickable { onClick() }
-            .border(glassBorder(), RoundedCornerShape(16.dp))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (showIcon) {
-                val iconRes = getCategoryIconRes(label)
-                if (iconRes != 0) {
-                    Icon(
-                        painter = painterResource(id = iconRes),
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-            }
-            Text(
-                text = label,
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
 fun DayGroupCard(
     date: LocalDate,
     bills: List<BillEntity>,
@@ -923,7 +802,6 @@ fun DayGroupCard(
     selectedIds: Set<Long>,
     onBillClick: (BillEntity) -> Unit,
     onBillLongClick: (BillEntity) -> Unit,
-    onCategoryClick: (BillEntity) -> Unit,
     onDelete: (BillEntity) -> Unit
 ) {
     val dayExpense = remember(bills) { bills.filter { !it.isIncome }.sumOf { it.amount } }
@@ -975,8 +853,7 @@ fun DayGroupCard(
                             isSelected = selectedIds.contains(bill.id),
                             isSelectionMode = isSelectionMode,
                             onClick = { onBillClick(bill) },
-                            onLongClick = { onBillLongClick(bill) },
-                            onCategoryClick = { onCategoryClick(bill) }
+                            onLongClick = { onBillLongClick(bill) }
                         )
                     }
                 }
@@ -1040,137 +917,5 @@ private fun formatDayHeader(date: LocalDate): String {
         now -> "$dayStr 今天"
         now.minusDays(1) -> "$dayStr 昨天"
         else -> "$dayStr $dayOfWeek"
-    }
-}
-
-
-/**
- * Vertical grid item for category selection dialogs (AddBill / ChangeCategory).
- * Icon on top with a colored circle background, label below.
- * Uses Modifier.weight(1f) so 4 items fit perfectly in a row.
- */
-@Composable
-fun CategoryGridItem(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val categoryColor = getCategoryColor(label)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isSelected) categoryColor
-                    else categoryColor.copy(alpha = 0.12f)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            val iconRes = getCategoryIconRes(label)
-            if (iconRes != 0) {
-                Icon(
-                    painter = painterResource(id = iconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = if (isSelected) Color.White else categoryColor
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(ComponentGap))
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isSelected) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-/** 编辑弹窗的单列：栏标题 + 纵向滚动选项（分类） */
-@Composable
-private fun BillEditColumn(
-    title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Column(modifier = modifier) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-        )
-        Column(
-            modifier = Modifier
-                .height(220.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp)
-        ) {
-            content()
-            Spacer(modifier = Modifier.height(ComponentGap))
-        }
-    }
-}
-
-/** 编辑弹窗的紧凑选项行：分类色点 + 名称 */
-@Composable
-private fun BillEditChip(
-    label: String,
-    dotColor: Color?,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer
-    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = bg,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (dotColor != null) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .background(dotColor, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            if (selected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
     }
 }

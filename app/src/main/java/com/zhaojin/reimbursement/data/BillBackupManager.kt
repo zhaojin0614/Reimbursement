@@ -16,10 +16,10 @@ import java.time.format.DateTimeFormatter
  * 账单数据备份管理器：单一 xlsx 工作簿承载全部记账数据。
  *
  * Sheet 结构：
- * - 「支出账单」「收入账单」：日期时间/分类/标题/金额
+ * - 「支出账单」「收入账单」：日期时间/标题/金额
  *
  * 表头按列名映射（顺序无关、多余列忽略），向前兼容未来加列；
- * 也能直接导入「捕账」导出的备份（多余的 平台/来源应用 等列自动忽略）。
+ * 也能直接导入「捕账」或本 app 旧版导出的备份（分类/平台 等多余列自动忽略）。
  */
 object BillBackupManager {
 
@@ -35,12 +35,11 @@ object BillBackupManager {
     )
     private val IN_DATE_ONLY_PATTERNS = listOf("yyyy-MM-dd", "yyyy/MM/dd")
 
-    private val BILL_HEADERS = listOf("日期时间", "分类", "标题", "金额")
+    private val BILL_HEADERS = listOf("日期时间", "标题", "金额")
 
     data class ParsedBill(
         val amount: Double,
         val title: String,
-        val category: String,
         val isIncome: Boolean,
         val timestamp: Long
     )
@@ -73,7 +72,7 @@ object BillBackupManager {
         fun billRows(list: List<BillEntity>): List<List<Any?>> =
             listOf(BILL_HEADERS) + list.sortedBy { it.timestamp }.map { b ->
                 listOf<Any?>(
-                    formatTime(b.timestamp), b.category, b.title, b.amount
+                    formatTime(b.timestamp), b.title, b.amount
                 )
             }
 
@@ -127,7 +126,6 @@ object BillBackupManager {
                     bills += ParsedBill(
                         amount = amount,
                         title = str(row, col, "标题") ?: "",
-                        category = str(row, col, "分类") ?: "未分类",
                         isIncome = isIncome,
                         timestamp = timestamp
                     )
@@ -164,7 +162,6 @@ object BillBackupManager {
                 toInsert += BillEntity(
                     amount = bill.amount,
                     title = bill.title,
-                    category = bill.category,
                     isIncome = bill.isIncome,
                     timestamp = bill.timestamp
                 )

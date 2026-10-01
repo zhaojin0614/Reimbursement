@@ -56,8 +56,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import com.zhaojin.reimbursement.ui.BillScreen
-import com.zhaojin.reimbursement.ui.components.AmbientBackground
-import com.zhaojin.reimbursement.ui.components.GlassBackdropRoot
+import com.zhaojin.reimbursement.ui.components.StaticBackground
 import com.zhaojin.reimbursement.ui.components.SliderStiffness
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.glassFill
@@ -97,9 +96,11 @@ class MainActivity : ComponentActivity() {
 fun MainApp() {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
-    // Single ambient background for the whole app: the bottom nav area and
+    // Single static background for the whole app: the bottom nav area and
     // every transparent screen share the same gradient layer, so the
     // floating nav pill has no solid strip on either side.
+    // 静态光斑替代原动画背景 + 实时背景模糊：一次绘制，不再有每帧
+    // 重组/重绘的常驻 GPU/CPU 开销。
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -113,12 +114,8 @@ fun MainApp() {
                 )
             )
     ) {
-        AmbientBackground()
-        // Real-time backdrop blur (iOS-style): screen content is captured
-        // to an off-screen layer, blurred underneath, then redrawn sharp —
-        // transparent glass components reveal the blurred copy.
-        GlassBackdropRoot(modifier = Modifier.fillMaxSize()) {
-            Scaffold(
+        StaticBackground()
+        Scaffold(
                 containerColor = Color.Transparent,
                 bottomBar = {
                     SoftNavBar(
@@ -144,7 +141,6 @@ fun MainApp() {
                         AppTab.Report -> stateHolder.SaveableStateProvider(key = "tab_report") { ReportScreen() }
                     }
                 }
-            }
         }
     }
 }

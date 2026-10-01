@@ -1,15 +1,8 @@
 package com.zhaojin.reimbursement.ui.components
 
-import androidx.compose.animation.animateColor
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,7 +50,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -71,8 +63,6 @@ import com.zhaojin.reimbursement.ui.theme.GradientBrandStart
 import com.zhaojin.reimbursement.ui.theme.MistBlue
 import com.zhaojin.reimbursement.ui.theme.SandGold
 import kotlinx.coroutines.launch
-import kotlin.math.PI
-import kotlin.math.sin
 
 /**
  * Soft UI shared components — the single visual language used across
@@ -547,278 +537,62 @@ fun StatPill(
         )
     }
 }
-
-// ---------- AmbientBackground: living light blobs behind glass ----------
+// ---------- StaticBackground: static soft glow backdrop ----------
 
 /**
- * Decorative ambient light blobs placed behind the translucent glass
- * surfaces so the frosted effect has color to refract.
+ * 静态背景：固定位置的柔光斑（无动画）。
  *
- * The background is alive: four blobs (mint / blue / gold / violet)
- * slowly drift, breathe (alpha pulses) and flow between high-saturation
- * cold-warm color pairs, with deliberately different cycle durations so
- * the motion stays organic. Because the blobs live under the translucent
- * glass, the liquid-glass surfaces pick up the motion — a true dynamic
- * backdrop.
+ * 原实现为 9 个光斑 + 极光底色的无限动画，每帧都在重组/重绘，持续消耗
+ * GPU/CPU；现改为一次布局、一次绘制的静态光斑，玻璃面板的透出色彩层次
+ * 保持一致，而后台常驻资源占用接近于零。底色渐变由 MainApp 根布局提供。
  */
 @Composable
-fun AmbientBackground(
-    modifier: Modifier = Modifier
-) {
+fun StaticBackground(modifier: Modifier = Modifier) {
     val dark = isDarkTheme()
-    val transition = rememberInfiniteTransition(label = "ambientBg")
-
-    // 波光轨迹：x/y 用不同频率的三角波经正弦变换 → Lissajous 曲线，幅度大，
-    // 光斑可以在整个屏幕范围内游走
-    val t1x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(13000, easing = LinearEasing), RepeatMode.Reverse), label = "t1x")
-    val t1y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(9500, easing = LinearEasing), RepeatMode.Reverse), label = "t1y")
-    val t2x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "t2x")
-    val t2y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Reverse), label = "t2y")
-    val t3x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(19000, easing = LinearEasing), RepeatMode.Reverse), label = "t3x")
-    val t3y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(14500, easing = LinearEasing), RepeatMode.Reverse), label = "t3y")
-    val t4x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Reverse), label = "t4x")
-    val t4y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(17000, easing = LinearEasing), RepeatMode.Reverse), label = "t4y")
-
-    // 颜色缓慢流动：高饱和冷暖交替（薄荷↔暖金 / 雾蓝↔紫罗兰 / 暖金↔珊瑚 / 亮紫↔青 / 草绿↔金黄 / 粉↔蓝）
-    val c1 by transition.animateColor(GradientBrandStart, SandGold, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse), label = "c1")
-    val c2 by transition.animateColor(MistBlue, Color(0xFFA97BD6), infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Reverse), label = "c2")
-    val c3 by transition.animateColor(SandGold, Color(0xFFEE7B6C), infiniteRepeatable(tween(28000, easing = LinearEasing), RepeatMode.Reverse), label = "c3")
-    val c4 by transition.animateColor(Color(0xFF9B8CE8), Color(0xFF4CB5C0), infiniteRepeatable(tween(32000, easing = LinearEasing), RepeatMode.Reverse), label = "c4")
-    val c5 by transition.animateColor(Color(0xFF3FAE7E), Color(0xFFF2B84B), infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Reverse), label = "c5")
-    val c6 by transition.animateColor(Color(0xFFEE7BA6), Color(0xFF5B9BD8), infiniteRepeatable(tween(26000, easing = LinearEasing), RepeatMode.Reverse), label = "c6")
-
-    // 中部光斑轨迹（填补屏幕中间的空缺）
-    val t5x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(15000, easing = LinearEasing), RepeatMode.Reverse), label = "t5x")
-    val t5y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(11500, easing = LinearEasing), RepeatMode.Reverse), label = "t5y")
-    val t6x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(18000, easing = LinearEasing), RepeatMode.Reverse), label = "t6x")
-    val t6y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(13500, easing = LinearEasing), RepeatMode.Reverse), label = "t6y")
-
-    // 光斑 7/8/9 轨迹：中上 / 左中 / 右中，填补屏幕边缘与中部之间的空隙
-    val t7x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(16500, easing = LinearEasing), RepeatMode.Reverse), label = "t7x")
-    val t7y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Reverse), label = "t7y")
-    val t8x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(19500, easing = LinearEasing), RepeatMode.Reverse), label = "t8x")
-    val t8y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(14000, easing = LinearEasing), RepeatMode.Reverse), label = "t8y")
-    val t9x by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(15500, easing = LinearEasing), RepeatMode.Reverse), label = "t9x")
-    val t9y by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(17500, easing = LinearEasing), RepeatMode.Reverse), label = "t9y")
-
-    // 光斑 7/8/9 颜色：金黄↔青 / 珊瑚↔薄荷 / 紫罗兰↔暖金
-    val c7 by transition.animateColor(Color(0xFFF2B84B), Color(0xFF4CB5C0), infiniteRepeatable(tween(25000, easing = LinearEasing), RepeatMode.Reverse), label = "c7")
-    val c8 by transition.animateColor(Color(0xFFEE7B6C), Color(0xFF3FAE7E), infiniteRepeatable(tween(21000, easing = LinearEasing), RepeatMode.Reverse), label = "c8")
-    val c9 by transition.animateColor(Color(0xFFA97BD6), Color(0xFFF2B84B), infiniteRepeatable(tween(27000, easing = LinearEasing), RepeatMode.Reverse), label = "c9")
-
-    // 极光渐变底色：四段色带独立往复流动（周期错相不同步），整屏色调持续漂移，
-    // 玻璃面板后面是"全屏在动"的柔和色彩，而非只有光斑在移动
-    val bg1 by transition.animateColor(
-        if (dark) Color(0xFF12231E) else Color(0xFFBFEBDD),
-        if (dark) Color(0xFF1B1A2E) else Color(0xFFC2C4F7),
-        infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bg1"
-    )
-    val bg2 by transition.animateColor(
-        if (dark) Color(0xFF16222F) else Color(0xFFD8E6F8),
-        if (dark) Color(0xFF241A28) else Color(0xFFF4DCE9),
-        infiniteRepeatable(tween(15000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bg2"
-    )
-    val bg3 by transition.animateColor(
-        if (dark) Color(0xFF221C15) else Color(0xFFF6E9D4),
-        if (dark) Color(0xFF132423) else Color(0xFFD4F0EA),
-        infiniteRepeatable(tween(13500, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bg3"
-    )
-    val bg4 by transition.animateColor(
-        if (dark) Color(0xFF1E1730) else Color(0xFFEADFF5),
-        if (dark) Color(0xFF122622) else Color(0xFFCDEFE6),
-        infiniteRepeatable(tween(10500, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bg4"
-    )
-
     Box(modifier = modifier.fillMaxSize()) {
-        // 全屏流动的极光渐变底色（最底层）
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to bg1,
-                        0.33f to bg2,
-                        0.67f to bg3,
-                        1f to bg4
-                    )
-                )
+        StaticBlob(
+            modifier = Modifier.align(Alignment.TopStart).offset((-80).dp, (-110).dp),
+            size = 470.dp, color = GradientBrandStart, dark = dark, alphaLight = 0.66f
         )
-        // Mint blob — top-left（薄荷 ↔ 暖金），大范围游走
-        // 光斑位移用 graphicsLayer 平移（draw 阶段读取动画值）而非 Modifier.offset，
-        // 避免 9 个光斑每帧触发布局传递，视觉效果完全一致
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .graphicsLayer {
-                    translationX = (-80 + sin(t1x * PI.toFloat()) * 90).dp.toPx()
-                    translationY = (-110 + sin(t1y * PI.toFloat()) * 85).dp.toPx()
-                }
-                .size(470.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c1.copy(alpha = if (dark) 0.48f else 0.66f),
-                            Color.Transparent
-                        )
-                    )
-                )
+        StaticBlob(
+            modifier = Modifier.align(Alignment.TopEnd).offset(90.dp, 40.dp),
+            size = 430.dp, color = MistBlue, dark = dark, alphaLight = 0.60f
         )
-        // Blue blob — top-right（雾蓝 ↔ 紫罗兰），大范围游走
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .graphicsLayer {
-                    translationX = (90 - sin(t2x * PI.toFloat()) * 90).dp.toPx()
-                    translationY = (40 + sin(t2y * PI.toFloat()) * 80).dp.toPx()
-                }
-                .size(430.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c2.copy(alpha = if (dark) 0.44f else 0.60f),
-                            Color.Transparent
-                        )
-                    )
-                )
+        StaticBlob(
+            modifier = Modifier.align(Alignment.BottomStart).offset((-70).dp, 70.dp),
+            size = 450.dp, color = SandGold, dark = dark, alphaLight = 0.54f
         )
-        // Gold blob — bottom-left（暖金 ↔ 珊瑚红），大范围游走
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .graphicsLayer {
-                    translationX = (-70 + sin(t3x * PI.toFloat()) * 95).dp.toPx()
-                    translationY = (70 + sin(t3y * PI.toFloat()) * 85).dp.toPx()
-                }
-                .size(450.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c3.copy(alpha = if (dark) 0.40f else 0.54f),
-                            Color.Transparent
-                        )
-                    )
-                )
+        StaticBlob(
+            modifier = Modifier.align(Alignment.BottomEnd).offset((-90).dp, (-50).dp),
+            size = 410.dp, color = Color(0xFF9B8CE8), dark = dark, alphaLight = 0.48f
         )
-        // Violet blob — bottom-right（亮紫 ↔ 青），大范围游走
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .graphicsLayer {
-                    translationX = (-90 - sin(t4x * PI.toFloat()) * 85).dp.toPx()
-                    translationY = (-50 + sin(t4y * PI.toFloat()) * 80).dp.toPx()
-                }
-                .size(410.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c4.copy(alpha = if (dark) 0.36f else 0.48f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Center blob — 屏幕正中（草绿 ↔ 金黄），填补中间空缺
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    translationX = (sin(t5x * PI.toFloat()) * 55).dp.toPx()
-                    translationY = (sin(t5y * PI.toFloat()) * 50).dp.toPx()
-                }
-                .size(390.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c5.copy(alpha = if (dark) 0.36f else 0.48f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Lower-middle blob — 中下部（粉 ↔ 蓝），填补下方中部空缺
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    translationX = (sin(t6x * PI.toFloat()) * 60).dp.toPx()
-                    translationY = (100 + sin(t6y * PI.toFloat()) * 55).dp.toPx()
-                }
-                .size(370.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c6.copy(alpha = if (dark) 0.32f else 0.44f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Upper-middle blob — 中上（金黄 ↔ 青），填补顶部中部空缺
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    translationX = (sin(t7x * PI.toFloat()) * 65).dp.toPx()
-                    translationY = (-150 + sin(t7y * PI.toFloat()) * 55).dp.toPx()
-                }
-                .size(260.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c7.copy(alpha = if (dark) 0.26f else 0.38f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Left-middle blob — 左中（珊瑚 ↔ 薄荷），填补左侧中部空缺
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .graphicsLayer {
-                    translationX = (-70 + sin(t8x * PI.toFloat()) * 65).dp.toPx()
-                    translationY = (sin(t8y * PI.toFloat()) * 90).dp.toPx()
-                }
-                .size(280.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c8.copy(alpha = if (dark) 0.24f else 0.36f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Right-middle blob — 右中（紫罗兰 ↔ 暖金），填补右侧中部空缺
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .graphicsLayer {
-                    translationX = (70 - sin(t9x * PI.toFloat()) * 65).dp.toPx()
-                    translationY = (sin(t9y * PI.toFloat()) * 90).dp.toPx()
-                }
-                .size(300.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            c9.copy(alpha = if (dark) 0.22f else 0.34f),
-                            Color.Transparent
-                        )
-                    )
-                )
+        StaticBlob(
+            modifier = Modifier.align(Alignment.Center),
+            size = 390.dp, color = Color(0xFF3FAE7E), dark = dark, alphaLight = 0.48f
         )
     }
+}
+
+/** 单个静态柔光斑：径向渐变圆，中心实色向外淡出 */
+@Composable
+private fun StaticBlob(
+    modifier: Modifier = Modifier,
+    size: Dp,
+    color: Color,
+    dark: Boolean,
+    alphaLight: Float
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        color.copy(alpha = if (dark) alphaLight * 0.72f else alphaLight),
+                        Color.Transparent
+                    )
+                )
+            )
+    )
 }

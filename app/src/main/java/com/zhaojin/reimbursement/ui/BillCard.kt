@@ -2,8 +2,8 @@ package com.zhaojin.reimbursement.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,11 +42,9 @@ fun BillCard(
     isSelectionMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    onCategoryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
-    val categoryColor = getCategoryColor(bill.category)
 
     Row(
         modifier = modifier
@@ -71,7 +67,7 @@ fun BillCard(
                 modifier = Modifier.padding(end = 8.dp)
             )
         }
-        // 分类图标块（纯手动记账无来源 App，直接以分类图标标识账单）
+        // 标题首字标识块（无分类概念，以账单标题首字作为视觉锚点）
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -80,21 +76,11 @@ fun BillCard(
                 .border(glassBorder(), RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
-            val iconRes = getCategoryIconRes(bill.category)
-            if (iconRes != 0) {
-                androidx.compose.material3.Icon(
-                    painter = painterResource(id = iconRes),
-                    contentDescription = bill.category,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(20.dp)
-                )
-            } else {
-                Text(
-                    text = bill.title.take(1).uppercase(),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+            Text(
+                text = bill.title.take(1).uppercase(),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
 
         Spacer(modifier = Modifier.width(10.dp))
@@ -103,7 +89,7 @@ fun BillCard(
             // Row 1: Title + Amount
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -125,27 +111,13 @@ fun BillCard(
                 )
             }
 
-            // Row 2: Category tag + Time
+            // Row 2: Time
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = categoryColor.copy(alpha = 0.12f),
-                    modifier = Modifier.clickable { onCategoryClick() }
-                ) {
-                    Text(
-                        text = bill.category,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = categoryColor,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = formatBillTimeOnly(bill.timestamp),
                     fontSize = 12.sp,
