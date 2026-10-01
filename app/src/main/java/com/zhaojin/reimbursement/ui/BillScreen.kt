@@ -2,6 +2,7 @@
 
 package com.zhaojin.reimbursement.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,13 +38,17 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsBackupRestore
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +79,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -107,6 +114,9 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+
+/** 导出备份文件 MIME：单个 xlsx（照片内嵌在工作簿里） */
+private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -200,6 +210,26 @@ fun BillScreen(
         galleryLauncher.launch(
             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
         )
+    }
+
+    // ── 备份与恢复（原设置页入口迁移至此）────────────────────────────────
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
+    var importOverwrite by remember { mutableStateOf(false) }
+    val backupBusy by viewModel.backupBusy.collectAsState()
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(XLSX_MIME)
+    ) { uri -> uri?.let { viewModel.exportBackup(it) } }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.importBackup(it, importOverwrite) } }
+    LaunchedEffect(Unit) {
+        viewModel.backupMessage.collect { message ->
+            message?.let {
+                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                viewModel.consumeBackupMessage()
+            }
+        }
     }
 
     if (showAddScreen) {
@@ -398,12 +428,37 @@ fun BillScreen(
                     }
                 }
             }
-        ) { innerPadding ->
+            ) { innerPadding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                // 备份 / 恢复入口（原设置页「备份与恢复」迁移至此）
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    BackupPillButton(
+                        icon = Icons.Default.Backup,
+                        text = "备份",
+                        enabled = !backupBusy
+                    ) {
+                        val date = java.time.LocalDate.now()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                        exportBackupLauncher.launch("维修报销_账单_$date.xlsx")
+                    }
+                    BackupPillButton(
+                        icon = Icons.Default.SettingsBackupRestore,
+                        text = "恢复",
+                        enabled = !backupBusy
+                    ) { showRestoreDialog = true }
+                }
+
+                Spacer(modifier = Modifier.height(ComponentGap))
+
                 // Pull-down stats panel
                 BillPullDownStatsPanel(
                     pullOffset = pullOffset.value,
@@ -685,6 +740,71 @@ fun BillScreen(
             onAdd = { sourcePickerFor = billId to title },
             onDeleteCurrent = { index ->
                 viewerPhotos.getOrNull(index)?.let { viewModel.deleteBillPhoto(it) }
+            }
+        )
+    }
+
+    // ── 备份：恢复方式选择（合并 / 覆盖）─────────────────────────────────
+    if (showRestoreDialog) {
+        GlassCompactDialog(
+            onDismissRequest = { showRestoreDialog = false },
+            title = "恢复备份",
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BackupActionRow(
+                        icon = Icons.Default.UploadFile,
+                        title = "导入数据（合并）",
+                        subtitle = "与现有账单去重后并入（含图片）",
+                        enabled = !backupBusy,
+                        onClick = {
+                            showRestoreDialog = false
+                            importOverwrite = false
+                            importBackupLauncher.launch(
+                                arrayOf(XLSX_MIME, "application/zip", "application/octet-stream")
+                            )
+                        }
+                    )
+                    BackupActionRow(
+                        icon = Icons.Default.SettingsBackupRestore,
+                        title = "恢复备份（覆盖）",
+                        subtitle = "清空当前账单与图片后按文件重建",
+                        enabled = !backupBusy,
+                        onClick = {
+                            showRestoreDialog = false
+                            showRestoreConfirm = true
+                        }
+                    )
+                    Text(
+                        text = "支持本 app 导出的 xlsx（照片内嵌）与旧版 zip 备份包",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRestoreDialog = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    if (showRestoreConfirm) {
+        GlassCompactDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = "恢复备份",
+            text = { Text("将清空当前所有账单，并按所选文件重建，此操作不可撤销。确定继续吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreConfirm = false
+                        importOverwrite = true
+                        importBackupLauncher.launch(
+                            arrayOf(XLSX_MIME, "application/zip", "application/octet-stream")
+                        )
+                    }
+                ) { Text("确定恢复", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) { Text("取消") }
             }
         )
     }
@@ -1037,5 +1157,78 @@ private fun formatDayHeader(date: LocalDate): String {
         now -> "$dayStr 今天"
         now.minusDays(1) -> "$dayStr 昨天"
         else -> "$dayStr $dayOfWeek"
+    }
+}
+
+/** 备份/恢复入口按钮：玻璃胶囊（图标 + 文本） */
+@Composable
+private fun BackupPillButton(
+    icon: ImageVector,
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = text,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/** 恢复弹窗的操作行：图标 + 标题 + 说明 */
+@Composable
+private fun BackupActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

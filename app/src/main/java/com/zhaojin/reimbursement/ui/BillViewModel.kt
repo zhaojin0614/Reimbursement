@@ -37,17 +37,18 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _backupMessage = MutableStateFlow<String?>(null)
     val backupMessage: StateFlow<String?> = _backupMessage
 
-    /** 导出全部账单 + 图片为 zip 备份包（用户经 SAF 选择位置） */
+    /** 导出全部账单（照片内嵌）为单个 xlsx（用户经 SAF 选择位置） */
     fun exportBackup(uri: Uri) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
             try {
+                val context = getApplication<Application>()
                 val bills = billDao.getAllBillsOnce()
                 val photos = photoDao.getAllOnce()
                     .groupBy { it.billId }
-                    .mapValues { e -> e.value.map { it.fileName } }
-                BillBackupManager.exportToUri(getApplication(), uri, bills, photos)
+                    .mapValues { e -> e.value.mapNotNull { BillPhotoStore.readExportBytes(context, it.fileName) } }
+                BillBackupManager.exportToUri(context, uri, bills, photos)
                     .onSuccess {
                         val photoCount = photos.values.sumOf { it.size }
                         _backupMessage.value =
@@ -61,7 +62,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 从备份文件导入。支持 zip 包（含图片）与纯 xlsx（旧版/捕账格式）。
+     * 从备份文件导入。支持图片内嵌的 xlsx、旧版 zip 备份包与捕账格式。
      * overwrite=false 合并（账单指纹去重，已存在的不重复导入图片）；
      * true 恢复覆盖（清空账单、图片记录和图片文件后重建）。
      */
@@ -75,7 +76,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     ?: throw IllegalStateException("无法读取所选文件")
                 val backup = BillBackupManager.parseBackup(bytes)
                 val result = BillBackupManager.importBackup(
-                    context, billDao, photoDao, backup.workbook, backup.images, overwrite
+                    context, billDao, photoDao, backup.workbook, backup.images, backup.embedded, overwrite
                 )
                 _backupMessage.value = (if (overwrite) "恢复完成：" else "导入完成：") + result.summary()
             } catch (e: Exception) {

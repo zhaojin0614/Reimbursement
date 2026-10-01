@@ -2,10 +2,7 @@
 
 package com.zhaojin.reimbursement.ui
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -31,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -39,9 +35,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.SettingsBackupRestore
-import androidx.compose.material.icons.filled.TableChart
-import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,8 +47,6 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,7 +66,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zhaojin.reimbursement.BuildConfig
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.SoftCard
@@ -85,45 +75,21 @@ import com.zhaojin.reimbursement.ui.theme.AccentColorRepository
 import com.zhaojin.reimbursement.ui.theme.AccentVariant
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 
-/** 备份包的 MIME（zip：表格 + 图片；导入同时兼容旧版 xlsx 与捕账格式） */
-private const val BACKUP_MIME = "application/zip"
-
 /**
- * 设置页：主题色 / 备份恢复 / 版本信息。
+ * 设置页：主题色 / 版本信息。（备份与恢复入口在记账页顶部）
  */
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val viewModel: BillViewModel = viewModel()
 
-    var showBackupDialog by remember { mutableStateOf(false) }
-    var showRestoreConfirm by remember { mutableStateOf(false) }
     var showAccentDialog by remember { mutableStateOf(false) }
     var showCustomPicker by remember { mutableStateOf(false) }
     // 弹窗内的草稿选择：点色块/调色板只改草稿，「使用此颜色」统一应用
     var draftAccent by remember { mutableStateOf(AccentVariant.fromPreset(AccentColor.MINT)) }
     var draftCustomColor by remember { mutableStateOf(AccentColor.MINT.primary) }
-    var importOverwrite by remember { mutableStateOf(false) }
 
     // 主色调：全局单例状态，选色后即时生效（读取处自动订阅重组）
     val currentAccent = AccentColorRepository.current
-
-    // 备份导出/导入的 SAF 启动器
-    val backupBusy by viewModel.backupBusy.collectAsState()
-    val exportBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(BACKUP_MIME)
-    ) { uri -> uri?.let { viewModel.exportBackup(it) } }
-    val importBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { viewModel.importBackup(it, importOverwrite) } }
-    LaunchedEffect(Unit) {
-        viewModel.backupMessage.collect { message ->
-            message?.let {
-                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-                viewModel.consumeBackupMessage()
-            }
-        }
-    }
 
     // 拦截系统返回手势/按键回到记账界面，而不是退出应用
     BackHandler(enabled = true) { onBack() }
@@ -181,15 +147,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                     }
                 }
-            }
-
-            SettingsGroup("数据") {
-                SettingsNavigateRow(
-                    icon = Icons.Default.Backup,
-                    title = "备份与恢复",
-                    value = "导出 / 导入",
-                    onClick = { showBackupDialog = true }
-                )
             }
 
             SettingsGroup("关于") {
@@ -333,78 +290,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { showAccentDialog = false }) { Text("取消") }
-            }
-        )
-    }
-
-    if (showBackupDialog) {
-        GlassCompactDialog(
-            onDismissRequest = { showBackupDialog = false },
-            title = "备份与恢复",
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BackupActionRow(
-                        icon = Icons.Default.TableChart,
-                        title = "导出备份（含图片）",
-                        subtitle = "账单表格 + 全部照片打包为 zip，可还原",
-                        enabled = !backupBusy,
-                        onClick = {
-                            showBackupDialog = false
-                            val date = java.time.LocalDate.now()
-                                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                            exportBackupLauncher.launch("维修报销_备份_$date.zip")
-                        }
-                    )
-                    BackupActionRow(
-                        icon = Icons.Default.UploadFile,
-                        title = "导入数据（合并）",
-                        subtitle = "与现有账单去重后并入（含图片）",
-                        enabled = !backupBusy,
-                        onClick = {
-                            showBackupDialog = false
-                            importOverwrite = false
-                            importBackupLauncher.launch(arrayOf(BACKUP_MIME, "application/octet-stream"))
-                        }
-                    )
-                    BackupActionRow(
-                        icon = Icons.Default.SettingsBackupRestore,
-                        title = "恢复备份（覆盖）",
-                        subtitle = "清空当前账单与图片后按文件重建",
-                        enabled = !backupBusy,
-                        onClick = {
-                            showBackupDialog = false
-                            showRestoreConfirm = true
-                        }
-                    )
-                    Text(
-                        text = "导入兼容 zip 备份与旧版 xlsx（含「捕账」导出，无图片列自动忽略）",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showBackupDialog = false }) { Text("关闭") }
-            }
-        )
-    }
-
-    if (showRestoreConfirm) {
-        GlassCompactDialog(
-            onDismissRequest = { showRestoreConfirm = false },
-            title = "恢复备份",
-            text = { Text("将清空当前所有账单，并按所选文件重建，此操作不可撤销。确定继续吗？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showRestoreConfirm = false
-                        importOverwrite = true
-                        importBackupLauncher.launch(arrayOf(BACKUP_MIME, "application/octet-stream"))
-                    }
-                ) { Text("确定恢复", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRestoreConfirm = false }) { Text("取消") }
             }
         )
     }
@@ -660,32 +545,6 @@ private fun SettingsRow(
     }
 }
 
-/** 导航行：右侧值 + 箭头 */
-@Composable
-private fun SettingsNavigateRow(
-    icon: ImageVector,
-    title: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    SettingsRow(icon = icon, title = title, onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
 /** 值行：右侧纯文本（不可点击） */
 @Composable
 private fun SettingsValueRow(
@@ -699,46 +558,5 @@ private fun SettingsValueRow(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-}
-
-/** 备份弹窗的操作行：图标 + 标题 + 说明 */
-@Composable
-private fun BackupActionRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
     }
 }

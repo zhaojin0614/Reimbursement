@@ -1,8 +1,10 @@
 package com.zhaojin.reimbursement.utils
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -89,6 +91,65 @@ class MiniXlsxTest {
         assertEquals("AA", MiniXlsx.colLetters(26))
         assertEquals(2, MiniXlsx.colIndexFromRef("C5"))
         assertEquals(26, MiniXlsx.colIndexFromRef("AA1"))
+        // 关系 Target 路径定位：相对 / 绝对 / 已带 xl 前缀
+        assertEquals("xl/media/a.jpg", MiniXlsx.resolveRelPath("xl/drawings", "../media/a.jpg"))
+        assertEquals("xl/media/a.jpg", MiniXlsx.resolveRelPath("xl/drawings", "/xl/media/a.jpg"))
+        assertEquals("xl/media/a.jpg", MiniXlsx.resolveRelPath("xl/worksheets", "../drawings/../media/a.jpg"))
+    }
+
+    @Test
+    fun `图片内嵌 - 写读回环`() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47) + byteArrayOf(1, 2, 3)
+        val jpg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + byteArrayOf(9, 9)
+        val sheet = MiniSheet(
+            name = "带图",
+            rows = listOf(listOf<Any?>("头", null, null, null, null)),
+            images = listOf(MiniImage(row = 1, col = 3, data = png), MiniImage(row = 1, col = 4, data = jpg))
+        )
+        val wb = MiniXlsx.readWithImages(
+            MiniXlsx.write(listOf(sheet, MiniSheet("空", listOf(listOf<Any?>("x")))))
+        )
+        assertEquals(2, wb.sheets.size)
+        val byRow = wb.images["带图"].orEmpty()
+        assertEquals(1, byRow.size)
+        val row1 = byRow[1].orEmpty()
+        assertEquals(2, row1.size)
+        assertArrayEquals(png, row1[0])
+        assertArrayEquals(jpg, row1[1])
+        assertTrue(wb.images["空"] == null)
+    }
+
+    @Test
+    fun `图片内嵌 - 兼容Excel重存结构 twoCellAnchor与绝对路径`() {
+        val media = "fake-jpeg-bytes"
+        val sheet = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row></sheetData>
+<drawing r:id="rId7"/></worksheet>"""
+        val drawing = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<xdr:twoCellAnchor><xdr:from><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+<xdr:to><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="1"/><xdr:cNvPicPr/></xdr:nvPicPr>
+<xdr:blipFill><a:blip r:embed="rId9"/><a:stretch/></xdr:blipFill><xdr:spPr/></xdr:pic>
+<xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>"""
+        val bytes = buildZip(
+            mapOf(
+                "[Content_Types].xml" to "<Types/>",
+                "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="支出账单" sheetId="1" r:id="rId1"/></sheets></workbook>""",
+                "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>""",
+                "xl/worksheets/sheet1.xml" to sheet,
+                "xl/worksheets/_rels/sheet1.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="/xl/drawings/drawing1.xml"/></Relationships>""",
+                "xl/drawings/drawing1.xml" to drawing,
+                "xl/drawings/_rels/drawing1.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.jpeg"/></Relationships>""",
+                "xl/media/image1.jpeg" to media
+            )
+        )
+
+        val wb = MiniXlsx.readWithImages(bytes)
+        val byRow = wb.images["支出账单"].orEmpty()
+        assertEquals(1, byRow[2].orEmpty().size)
+        assertEquals(media, String(byRow[2]!![0], Charsets.UTF_8))
     }
 
     @Test

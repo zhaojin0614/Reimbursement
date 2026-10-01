@@ -60,12 +60,37 @@ object BillPhotoStore {
         thumbnailCache.evictAll()
     }
 
-    /** 把字节数据（zip 备份导入等）存为新图片文件，返回文件名；失败返回 null */
+    /** 把字节数据（备份导入等）存为新图片文件，返回文件名；失败返回 null */
     fun saveBytes(context: Context, data: ByteArray): String? = runCatching {
         val name = UUID.randomUUID().toString() + ".jpg"
         fileFor(context, name).writeBytes(data)
         name
     }.getOrNull()
+
+    /** 备份导出用：读取原图字节并归一化（HEIC 等转 JPEG），文件缺失或解码失败返回 null */
+    fun readExportBytes(context: Context, name: String): ByteArray? {
+        val file = fileFor(context, name)
+        if (!file.exists()) return null
+        return normalizeImageBytes(file.readBytes())
+    }
+
+    /**
+     * 导出归一化：JPEG/PNG 原样返回（保原图质量）；其余格式（相册 HEIC 等
+     * Excel 不支持的）解码后重编为 JPEG，失败返回 null。
+     */
+    fun normalizeImageBytes(data: ByteArray): ByteArray? {
+        val isJpeg = data.size >= 3 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte() &&
+            data[2] == 0xFF.toByte()
+        val isPng = data.size >= 8 && data[0] == 0x89.toByte() && data[1] == 0x50.toByte() &&
+            data[2] == 0x4E.toByte() && data[3] == 0x47.toByte()
+        if (isJpeg || isPng) return data
+        return runCatching {
+            val bmp = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return null
+            java.io.ByteArrayOutputStream().also { out ->
+                bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }.toByteArray()
+        }.getOrNull()
+    }
 
     /** 恢复覆盖前清空全部已托管图片文件（pending 临时文件保留） */
     fun clearAll(context: Context) {
