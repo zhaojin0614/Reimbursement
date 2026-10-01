@@ -3,9 +3,6 @@
 package com.zhaojin.reimbursement.ui.report
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,7 +26,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -38,8 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -54,10 +48,8 @@ import java.time.YearMonth
 import kotlin.math.ceil
 
 import com.zhaojin.reimbursement.ui.components.PillToggle
-import com.zhaojin.reimbursement.ui.components.SliderStiffness
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.glassBorder
-import com.zhaojin.reimbursement.ui.components.gradientBrush
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.IncomeGreen
@@ -113,7 +105,6 @@ fun ReportScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val periodType by viewModel.periodType.collectAsState()
-    val showIncome by viewModel.showIncome.collectAsState()
     val currentOffset by viewModel.currentOffset.collectAsState()
 
     var showCustomRangePicker by remember { mutableStateOf(false) }
@@ -201,7 +192,7 @@ fun ReportScreen(
                 Column {
                 Spacer(modifier = Modifier.height(ComponentGap))
 
-                // Date nav + income/expense toggle
+                // Date nav
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -221,10 +212,6 @@ fun ReportScreen(
                         onSelectYear = { y -> viewModel.setYear(y) },
                         onSelectCustomRange = { showCustomRangePicker = true }
                     )
-                    IncomeExpenseToggle(
-                        showIncome,
-                        { viewModel.toggleShowIncome() }
-                    )
                 }
 
                 Spacer(modifier = Modifier.height(ComponentGap))
@@ -232,11 +219,9 @@ fun ReportScreen(
                 // Summary cards
                 SummaryCards(
                     periodType = periodType,
-                    showIncome = showIncome,
                     periodTotal = uiState.periodTotal,
                     dailyAvg = uiState.dailyAvg,
                     prevDiff = uiState.prevDiff,
-                    balance = uiState.balance,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
@@ -245,7 +230,6 @@ fun ReportScreen(
                 // Trend line chart
                 TrendLineChartSection(
                     periodType = periodType,
-                    showIncome = showIncome,
                     data = uiState.trendData,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
@@ -254,7 +238,6 @@ fun ReportScreen(
                 if (uiState.barData.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(ComponentGap))
                     TrendBarChartSection(
-                        showIncome = showIncome,
                         data = uiState.barData,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
@@ -410,104 +393,14 @@ private fun DateNavigation(
 }
 
 @Composable
-private fun IncomeExpenseToggle(
-    showIncome: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val options = listOf("支出" to ExpenseRed, "收入" to IncomeGreen)
-    var itemLefts by remember { mutableStateOf(FloatArray(options.size)) }
-    var itemWidths by remember { mutableStateOf(IntArray(options.size)) }
-    var measured by remember { mutableStateOf(false) }
-    val sliderLeft = remember { Animatable(0f) }
-    val sliderWidth = remember { Animatable(0f) }
-    val selectedIndex = if (showIncome) 1 else 0
-
-    LaunchedEffect(itemLefts, itemWidths, selectedIndex) {
-        if (!measured) return@LaunchedEffect
-        val targetLeft = itemLefts[selectedIndex]
-        val targetWidth = itemWidths[selectedIndex].toFloat()
-        if (sliderWidth.value == 0f) {
-            sliderLeft.snapTo(targetLeft)
-            sliderWidth.snapTo(targetWidth)
-        } else {
-            launch {
-                sliderLeft.animateTo(
-                    targetLeft,
-                    spring(Spring.DampingRatioNoBouncy, SliderStiffness)
-                )
-            }
-            sliderWidth.animateTo(
-                targetWidth,
-                spring(Spring.DampingRatioNoBouncy, SliderStiffness)
-            )
-        }
-    }
-
-    val selectedBrush = gradientBrush(options[selectedIndex].second, alpha = 0.92f)
-
-    // 紧凑自适应小胶囊：字号比周期选择框（labelLarge 14sp）小一级（13sp，同记账页分类 chip），
-    // 圆角与记账页选择框同级（16dp），高度压到约 30dp；选中胶囊为滑动滑块
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(LocalReportColors.current.neutralGray.copy(alpha = 0.35f))
-            .border(glassBorder(), RoundedCornerShape(16.dp))
-            .drawBehind {
-                if (!measured || sliderWidth.value <= 0f) return@drawBehind
-                val pad = 2.dp.toPx()
-                drawRoundRect(
-                    brush = selectedBrush,
-                    topLeft = Offset(pad + sliderLeft.value, pad),
-                    size = Size(sliderWidth.value, this.size.height - pad * 2),
-                    cornerRadius = CornerRadius(14.dp.toPx())
-                )
-            }
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        options.forEachIndexed { index, (label, _) ->
-            val selected = selectedIndex == index
-            Box(
-                modifier = Modifier
-                    .onGloballyPositioned { coords ->
-                        val left = coords.positionInParent().x
-                        val width = coords.size.width
-                        if (itemLefts[index] != left || itemWidths[index] != width) {
-                            val newLefts = itemLefts.copyOf(); newLefts[index] = left
-                            val newWidths = itemWidths.copyOf(); newWidths[index] = width
-                            itemLefts = newLefts
-                            itemWidths = newWidths
-                            measured = true
-                        }
-                    }
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { if (!selected) onToggle() }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 13.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (selected) Color.White else LocalReportColors.current.textGray
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun SummaryCards(
     periodType: ReportViewModel.PeriodType,
-    showIncome: Boolean,
     periodTotal: Double,
     dailyAvg: Double,
     prevDiff: Double,
-    balance: Double,
     modifier: Modifier = Modifier
 ) {
-    val typeLabel = if (showIncome) "收入" else "支出"
+    val typeLabel = "维修报销"
     val (totalLabel, avgLabel, diffLabel) = when (periodType) {
         ReportViewModel.PeriodType.WEEK ->
             Triple("本周${typeLabel}（元）", "日均${typeLabel}（元）", "比上周${typeLabel}（元）")
@@ -536,26 +429,16 @@ private fun SummaryCards(
                 leftBorderColor = MaterialTheme.colorScheme.secondary
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(ComponentGap)) {
-            val diffColor = if (prevDiff >= 0) IncomeGreen else ExpenseRed
-            val diffSign = if (prevDiff >= 0) "+" else ""
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = diffLabel,
-                value = "$diffSign${String.format("%.2f", prevDiff)}",
-                valueColor = diffColor,
-                leftBorderColor = MaterialTheme.colorScheme.secondary
-            )
-            val balanceColor = if (balance >= 0) IncomeGreen else ExpenseRed
-            val balanceSign = if (balance >= 0) "+" else ""
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "收支结余（元）",
-                value = "$balanceSign${String.format("%.2f", balance)}",
-                valueColor = balanceColor,
-                leftBorderColor = MaterialTheme.colorScheme.secondary
-            )
-        }
+        // 比上期：报销增加为红（花得多），减少为绿（花得少）
+        val diffColor = if (prevDiff > 0) ExpenseRed else IncomeGreen
+        val diffSign = if (prevDiff > 0) "+" else ""
+        StatCard(
+            modifier = Modifier.fillMaxWidth(),
+            title = diffLabel,
+            value = "$diffSign${String.format("%.2f", prevDiff)}",
+            valueColor = diffColor,
+            leftBorderColor = MaterialTheme.colorScheme.secondary
+        )
     }
 }
 
@@ -612,7 +495,6 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
 @Composable
 private fun TrendLineChartSection(
     periodType: ReportViewModel.PeriodType,
-    showIncome: Boolean,
     data: List<ReportViewModel.TrendPoint>,
     modifier: Modifier = Modifier
 ) {
@@ -622,7 +504,7 @@ private fun TrendLineChartSection(
         ReportViewModel.PeriodType.YEAR -> "本年趋势"
         ReportViewModel.PeriodType.CUSTOM -> "时间段趋势"
     }
-    val typeLabel = if (showIncome) "收入" else "支出"
+    val typeLabel = "维修报销"
 
     SoftCard(
         modifier = modifier.fillMaxWidth(),
@@ -841,11 +723,10 @@ private fun TrendLineChart(
 
 @Composable
 private fun TrendBarChartSection(
-    showIncome: Boolean,
     data: List<ReportViewModel.BarPoint>,
     modifier: Modifier = Modifier
 ) {
-    val title = if (showIncome) "收入趋势" else "支出趋势"
+    val title = "维修报销趋势"
     SoftCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),

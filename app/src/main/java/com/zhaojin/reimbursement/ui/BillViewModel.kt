@@ -109,20 +109,9 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         private const val PAGE_SIZE = 30
     }
 
-    // ── 记账页筛选状态（null = 全部，不过滤类型）────────────────────────
-    private val _typeFilter = MutableStateFlow<Boolean?>(null)     // true=收入 false=支出
+    // ── 记账页筛选状态 ──────────────────────────────────────────────────
     private val _limit = MutableStateFlow(PAGE_SIZE)
     private val _searchQuery = MutableStateFlow("")
-
-    /** UI 调用：切换 全部/支出/收入 类型筛选（重置分页） */
-    fun setTypeFilter(typeLabel: String?) {
-        _typeFilter.value = when (typeLabel) {
-            "收入" -> true
-            "支出" -> false
-            else -> null
-        }
-        _limit.value = PAGE_SIZE
-    }
 
     /** UI 调用：设置账单搜索关键词（空 = 关闭搜索） */
     fun setSearchQuery(query: String) {
@@ -132,7 +121,6 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 一次账单列表查询的全部参数（任一变化即重查） */
     private data class BillQuery(
-        val type: Boolean?,
         val limit: Int,
         val query: String
     )
@@ -143,13 +131,13 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
      * 隐身（而筛选视图能看到），条数分页没有此不一致问题。
      */
     val bills: StateFlow<List<BillEntity>> = combine(
-        _typeFilter, _limit, _searchQuery, ::BillQuery
+        _limit, _searchQuery, ::BillQuery
     ).flatMapLatest { q ->
         when {
             // 搜索优先：关键词命中标题/金额文本
             q.query.isNotBlank() ->
-                billDao.searchBills(q.query.trim(), q.type, q.limit)
-            else -> billDao.getBillsFiltered(q.type, q.limit)
+                billDao.searchBills(q.query.trim(), null, q.limit)
+            else -> billDao.getBillsFiltered(null, q.limit)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -159,10 +147,6 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val totalExpense: StateFlow<Double> = billDao.getTotalExpense()
-        .map { it ?: 0.0 }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
-
-    val totalIncome: StateFlow<Double> = billDao.getTotalIncome()
         .map { it ?: 0.0 }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
@@ -190,24 +174,14 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             .toInstant()
             .toEpochMilli()
 
-    /** 本月支出合计（记账界面大卡片展示） */
+    /** 本月维修报销合计（记账界面大卡片展示） */
     val monthExpense: StateFlow<Double> = reactiveStartOfMonth
         .flatMapLatest { start ->
             billDao.getMonthExpense(start).map { it ?: 0.0 }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    /** 本月收入合计（记账界面大卡片展示） */
-    val monthIncome: StateFlow<Double> = reactiveStartOfMonth
-        .flatMapLatest { start ->
-            billDao.getMonthIncome(start).map { it ?: 0.0 }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
-
     val expenseCount: StateFlow<Int> = billDao.getExpenseCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val incomeCount: StateFlow<Int> = billDao.getIncomeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -256,7 +230,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             billDao.insert(bill)
             AppLogger.log(
                 "账单",
-                "添加账单 「${bill.title}」 ¥${bill.amount} ${if (bill.isIncome) "收入" else "支出"} " +
+                "添加账单 「${bill.title}」 ¥${bill.amount} " +
                     "日期=${java.time.Instant.ofEpochMilli(bill.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}"
             )
         }

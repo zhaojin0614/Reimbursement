@@ -40,7 +40,6 @@ import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.gradientBrush
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
-import com.zhaojin.reimbursement.ui.theme.IncomeGreen
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 
 @Composable
@@ -88,8 +87,6 @@ fun BillCard(
         Spacer(modifier = Modifier.width(10.dp))
 
         // 单行内容：标题居左，金额居右（日期由分组标题表达，行内不再重复）
-        val amountColor = if (bill.isIncome) IncomeGreen else ExpenseRed
-        val amountPrefix = if (bill.isIncome) "+" else "-"
         Text(
             text = bill.title,
             fontSize = 15.sp,
@@ -100,10 +97,10 @@ fun BillCard(
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = "$amountPrefix¥${String.format("%.2f", bill.amount)}",
+            text = "¥${String.format("%.2f", bill.amount)}",
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = amountColor
+            color = ExpenseRed
         )
     }
 }

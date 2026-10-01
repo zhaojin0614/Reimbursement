@@ -21,16 +21,21 @@ import kotlin.math.roundToInt
 /**
  * 账单数据备份管理器。
  *
- * 导出为**单个 xlsx**：照片直接内嵌在工作簿 drawing 层（「图片」列每格按张数
- * 横向铺 60px 锚点，D/E/F… 列），Excel/WPS 打开即可见图，无需额外附件包。
- * 导入自动识别三种文件：
- * - 单 xlsx（新格式）：图片取该行内嵌 drawing（Excel 编辑后图片丢失则按无图导入）；
- * - zip 备份包（旧版）：账单.xlsx + images/ 目录，按「图片」列文件名对位；
+ * 导出为**单个 xlsx**：仅一张「维修报销账单」表，照片直接内嵌在工作簿
+ * drawing 层（「图片」列每格按张数横向铺开），Excel/WPS 打开即可见图。
+ * 导入自动识别：
+ * - 新格式：单张「维修报销账单」表（图片内嵌 drawing）；
+ * - 旧版 zip 备份包（账单.xlsx + images/）：按「支出账单」表导入，
+ *   「收入账单」表（收入功能已移除）忽略；
  * - 「捕账」xlsx：无图片列，按表格导入。
  * 表头按列名映射（顺序无关、多余列忽略），向前兼容未来加列。
  */
 object BillBackupManager {
 
+    /** 新版唯一工作表名 */
+    const val SHEET_MAIN = "维修报销账单"
+
+    /** 旧版工作表名（导入兼容） */
     const val SHEET_EXPENSE = "支出账单"
     const val SHEET_INCOME = "收入账单"
     const val ZIP_XLSX_ENTRY = "账单.xlsx"
@@ -86,7 +91,6 @@ object BillBackupManager {
     data class ParsedBill(
         val amount: Double,
         val title: String,
-        val isIncome: Boolean,
         val timestamp: Long,
         /** 所在工作表名与物理行号（0 基，表头为 0），用于对位新格式内嵌图片 */
         val sheet: String = "",
@@ -196,12 +200,7 @@ object BillBackupManager {
             )
         }
 
-        return MiniXlsx.write(
-            listOf(
-                sheetData(SHEET_EXPENSE, bills.filterNot { it.isIncome }),
-                sheetData(SHEET_INCOME, bills.filter { it.isIncome })
-            )
-        )
+        return MiniXlsx.write(listOf(sheetData(SHEET_MAIN, bills)))
     }
 
     /**
@@ -270,41 +269,36 @@ object BillBackupManager {
     fun parseWorkbook(bytes: ByteArray): ParsedWorkbook = parseSheets(MiniXlsx.read(bytes))
 
     private fun parseSheets(sheets: List<MiniSheet>): ParsedWorkbook {
-        fun find(name: String) = sheets.firstOrNull { it.name == name }
-        val expense = find(SHEET_EXPENSE)
-        val income = find(SHEET_INCOME)
-        if (expense == null && income == null) {
-            throw IllegalArgumentException("未找到「$SHEET_EXPENSE」或「$SHEET_INCOME」工作表")
-        }
+        // 新格式唯一表「维修报销账单」；旧版兼容读「支出账单」。
+        // 「收入账单」表（收入功能已移除）不解析、直接忽略。
+        val sheet = sheets.firstOrNull { it.name == SHEET_MAIN }
+            ?: sheets.firstOrNull { it.name == SHEET_EXPENSE }
+            ?: throw IllegalArgumentException("未找到「$SHEET_MAIN」或「$SHEET_EXPENSE」工作表")
 
         val bills = ArrayList<ParsedBill>()
         var badRows = 0
-        listOf(expense to false, income to true).forEach { (sheet, isIncome) ->
-            sheet ?: return@forEach
-            // 必需列不含「图片」：旧版/捕账格式没有该列也能导入（解析为无图）
-            val col = headerMap(sheet.rows.firstOrNull(), BILL_HEADERS, listOf("日期时间", "标题", "金额"), sheet.name)
-            sheet.rows.forEachIndexed { rowIdx, row ->
-                if (rowIdx == 0) return@forEachIndexed
-                if (row.all { it == null || (it is String && it.isBlank()) }) return@forEachIndexed
-                // 合计行等非数据行（日期列为空）直接忽略，不计入坏行
-                if (str(row, col, "日期时间").isNullOrBlank()) return@forEachIndexed
-                try {
-                    val timestamp = parseTimestamp(str(row, col, "日期时间") ?: throw IllegalStateException("缺少日期"))
-                        ?: throw IllegalStateException("日期格式无法识别")
-                    val amount = str(row, col, "金额")?.toDoubleOrNull()
-                        ?.takeIf { it > 0 } ?: throw IllegalStateException("金额无效")
-                    bills += ParsedBill(
-                        amount = amount,
-                        title = str(row, col, "标题") ?: "",
-                        isIncome = isIncome,
-                        timestamp = timestamp,
-                        sheet = sheet.name,
-                        row = rowIdx,
-                        photos = parsePhotoRefs(str(row, col, PHOTO_HEADER))
-                    )
-                } catch (e: Exception) {
-                    badRows++
-                }
+        // 必需列不含「图片」：旧版/捕账格式没有该列也能导入（解析为无图）
+        val col = headerMap(sheet.rows.firstOrNull(), BILL_HEADERS, listOf("日期时间", "标题", "金额"), sheet.name)
+        sheet.rows.forEachIndexed { rowIdx, row ->
+            if (rowIdx == 0) return@forEachIndexed
+            if (row.all { it == null || (it is String && it.isBlank()) }) return@forEachIndexed
+            // 合计行等非数据行（日期列为空）直接忽略，不计入坏行
+            if (str(row, col, "日期时间").isNullOrBlank()) return@forEachIndexed
+            try {
+                val timestamp = parseTimestamp(str(row, col, "日期时间") ?: throw IllegalStateException("缺少日期"))
+                    ?: throw IllegalStateException("日期格式无法识别")
+                val amount = str(row, col, "金额")?.toDoubleOrNull()
+                    ?.takeIf { it > 0 } ?: throw IllegalStateException("金额无效")
+                bills += ParsedBill(
+                    amount = amount,
+                    title = str(row, col, "标题") ?: "",
+                    timestamp = timestamp,
+                    sheet = sheet.name,
+                    row = rowIdx,
+                    photos = parsePhotoRefs(str(row, col, PHOTO_HEADER))
+                )
+            } catch (e: Exception) {
+                badRows++
             }
         }
         return ParsedWorkbook(bills, badRows)
@@ -349,14 +343,14 @@ object BillBackupManager {
         var skipped = 0
         var photoCount = 0
         parsed.bills.forEach { bill ->
-            val key = fingerprint(bill.timestamp, bill.amount, bill.title, bill.isIncome)
+            val key = fingerprint(bill.timestamp, bill.amount, bill.title, isIncome = false)
             if (key in existingKeys) {
                 skipped++
                 return@forEach
             }
             existingKeys.add(key)
             val billId = billDao.insert(
-                BillEntity(amount = bill.amount, title = bill.title, isIncome = bill.isIncome, timestamp = bill.timestamp)
+                BillEntity(amount = bill.amount, title = bill.title, isIncome = false, timestamp = bill.timestamp)
             )
             if (billId <= 0) {
                 skipped++

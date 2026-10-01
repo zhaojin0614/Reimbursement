@@ -47,7 +47,6 @@ import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -98,7 +97,6 @@ import com.zhaojin.reimbursement.R
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.BillPhotoEntity
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
-import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.SoftFab
 import com.zhaojin.reimbursement.ui.components.SoftGradientCard
@@ -110,9 +108,6 @@ import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.GradientExpenseEnd
 import com.zhaojin.reimbursement.ui.theme.GradientExpenseStart
-import com.zhaojin.reimbursement.ui.theme.GradientIncomeEnd
-import com.zhaojin.reimbursement.ui.theme.GradientIncomeStart
-import com.zhaojin.reimbursement.ui.theme.IncomeGreen
 import com.zhaojin.reimbursement.utils.AppLogger
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.launch
@@ -137,18 +132,14 @@ fun BillScreen(
     val bills by viewModel.bills.collectAsState()
     val photosByBill by viewModel.photosByBill.collectAsState()
     val totalExpense by viewModel.totalExpense.collectAsState()
-    val totalIncome by viewModel.totalIncome.collectAsState()
     val monthExpense by viewModel.monthExpense.collectAsState()
-    val monthIncome by viewModel.monthIncome.collectAsState()
     val expenseCount by viewModel.expenseCount.collectAsState()
-    val incomeCount by viewModel.incomeCount.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var billToDelete by remember { mutableStateOf<BillEntity?>(null) }
-    var selectedType by remember { mutableStateOf<String?>(null) } // null/全部, 支出, 收入
     var showAddScreen by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var billToEdit by remember { mutableStateOf<BillEntity?>(null) }
@@ -281,11 +272,6 @@ fun BillScreen(
     if (showSettings) {
         SettingsScreen(onBack = { showSettings = false })
         return
-    }
-
-    // 类型筛选下沉到 ViewModel 直接查库（类型变化即重查）
-    LaunchedEffect(selectedType) {
-        viewModel.setTypeFilter(selectedType)
     }
 
     // Pull-down stats panel
@@ -485,42 +471,11 @@ fun BillScreen(
                     pullOffset = pullOffset.value,
                     maxPullOffset = maxPullOffsetPx,
                     expenseCount = expenseCount,
-                    incomeCount = incomeCount,
-                    totalExpense = totalExpense,
-                    totalIncome = totalIncome
+                    totalExpense = totalExpense
                 )
 
-                // Income / Expense Summary Cards
-                IncomeExpenseSummary(
-                    monthExpense = monthExpense,
-                    monthIncome = monthIncome
-                )
-
-                Spacer(modifier = Modifier.height(ComponentGap))
-
-                // Type Filter (全部/支出/收入) — equal-width pill toggle
-                PillToggle(
-                    options = listOf(
-                        "全部" to MaterialTheme.colorScheme.primary,
-                        "支出" to ExpenseRed,
-                        "收入" to IncomeGreen
-                    ),
-                    selectedIndex = when (selectedType) {
-                        "支出" -> 1
-                        "收入" -> 2
-                        else -> 0
-                    },
-                    onSelect = { index ->
-                        selectedType = when (index) {
-                            1 -> "支出"
-                            2 -> "收入"
-                            else -> null
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                )
+                // 本月维修报销概览
+                MonthExpenseSummary(monthExpense = monthExpense)
 
                 Spacer(modifier = Modifier.height(ComponentGap))
 
@@ -670,7 +625,7 @@ fun BillScreen(
                 showEditDialog = false
                 billToEdit = null
             },
-            title = if (bill.isIncome) "编辑收入账单" else "编辑支出账单",
+            title = "编辑账单",
             text = {
                 Column {
                     TextField(
@@ -904,9 +859,7 @@ fun BillPullDownStatsPanel(
     pullOffset: Float,
     maxPullOffset: Float,
     expenseCount: Int,
-    incomeCount: Int,
-    totalExpense: Double,
-    totalIncome: Double
+    totalExpense: Double
 ) {
     if (pullOffset <= 0f) return
 
@@ -930,113 +883,61 @@ fun BillPullDownStatsPanel(
             ) {
                 BillStatItem(
                     value = expenseCount.toString(),
-                    label = "支出笔数",
+                    label = "维修报销笔数",
                     alpha = contentAlpha
                 )
                 BillStatItem(
                     value = "¥${String.format("%.2f", totalExpense)}",
-                    label = "累计支出",
+                    label = "累计维修报销",
                     alpha = contentAlpha,
                     valueColor = ExpenseRed.copy(alpha = contentAlpha)
-                )
-                BillStatItem(
-                    value = "¥${String.format("%.2f", totalIncome)}",
-                    label = "累计收入",
-                    alpha = contentAlpha,
-                    valueColor = IncomeGreen.copy(alpha = contentAlpha)
-                )
-                BillStatItem(
-                    value = incomeCount.toString(),
-                    label = "收入笔数",
-                    alpha = contentAlpha
                 )
             }
         }
     }
 }
 
+/** 本月维修报销概览：单卡片满宽 */
 @Composable
-fun IncomeExpenseSummary(
-    monthExpense: Double,
-    monthIncome: Double
-) {
-    Column(
+fun MonthExpenseSummary(monthExpense: Double) {
+    SoftGradientCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
+            .heightIn(min = 96.dp),
+        brush = Brush.linearGradient(
+            colors = listOf(GradientExpenseStart, GradientExpenseEnd)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = 14.dp
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Month Expense
-            SoftGradientCard(
-                modifier = Modifier.weight(1f).heightIn(min = 96.dp),
-                brush = Brush.linearGradient(
-                    colors = listOf(GradientExpenseStart, GradientExpenseEnd)
-                ),
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = 14.dp
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.MonetizationOn,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "本月支出",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.MonetizationOn,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "¥${String.format("%.2f", monthExpense)}",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "本月维修报销",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-            }
-
-            // Month Income
-            SoftGradientCard(
-                modifier = Modifier.weight(1f).heightIn(min = 96.dp),
-                brush = Brush.linearGradient(
-                    colors = listOf(GradientIncomeStart, GradientIncomeEnd)
-                ),
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = 14.dp
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.TrendingUp,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "本月收入",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "¥${String.format("%.2f", monthIncome)}",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "¥${String.format("%.2f", monthExpense)}",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -1076,8 +977,7 @@ fun DayGroupCard(
     onIconClick: (BillEntity) -> Unit = {},
     onDelete: (BillEntity) -> Unit
 ) {
-    val dayExpense = remember(bills) { bills.filter { !it.isIncome }.sumOf { it.amount } }
-    val dayIncome = remember(bills) { bills.filter { it.isIncome }.sumOf { it.amount } }
+    val dayTotal = remember(bills) { bills.sumOf { it.amount } }
 
     SoftCard(
         modifier = Modifier
@@ -1099,7 +999,7 @@ fun DayGroupCard(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "支${String.format("%.2f", dayExpense)} 收${String.format("%.2f", dayIncome)}",
+                    text = "¥${String.format("%.2f", dayTotal)}",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1173,7 +1073,7 @@ fun EmptyBillState() {
             )
             Spacer(modifier = Modifier.height(ComponentGap))
             Text(
-                text = "点击右下角 ＋ 记一笔维修、报销或日常收支",
+                text = "点击右下角 ＋ 记一笔维修报销",
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 40.dp)

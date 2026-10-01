@@ -53,12 +53,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhaojin.reimbursement.data.BillEntity
-import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SoftButton
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.isDarkTheme
-import com.zhaojin.reimbursement.ui.theme.ExpenseRed
-import com.zhaojin.reimbursement.ui.theme.IncomeGreen
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -77,7 +74,6 @@ fun AddBillScreen(
 ) {
     var title by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("") }
-    var isIncome by remember { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
     var selectedDate by remember { mutableStateOf(today) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -120,15 +116,7 @@ fun AddBillScreen(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Income / Expense toggle
-            PillToggle(
-                options = listOf("支出" to ExpenseRed, "收入" to IncomeGreen),
-                selectedIndex = if (isIncome) 1 else 0,
-                onSelect = { isIncome = it == 1 },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             TextField(
                 value = title,
@@ -214,14 +202,13 @@ fun AddBillScreen(
                             BillEntity(
                                 amount = amt,
                                 title = title,
-                                isIncome = isIncome,
+                                isIncome = false,
                                 timestamp = ts
                             )
                         )
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                backgroundColor = if (isIncome) IncomeGreen else MaterialTheme.colorScheme.primary
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
