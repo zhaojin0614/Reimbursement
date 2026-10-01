@@ -233,10 +233,18 @@ fun BillScreen(
     // ── 导出账单（按日时间段，照片内嵌 xlsx，生成后弹系统分享面板）────────
     val backupBusy by viewModel.backupBusy.collectAsState()
     var showExportDialog by remember { mutableStateOf(false) }
-    // 弹窗内的范围草稿：默认本月 1 日 ~ 今天
-    var exportStart by remember { mutableStateOf(java.time.LocalDate.now().withDayOfMonth(1)) }
+    // 弹窗内的范围草稿：每次点导出时重置为 最早账单日 ~ 今天
+    var exportStart by remember { mutableStateOf(java.time.LocalDate.now()) }
     var exportEnd by remember { mutableStateOf(java.time.LocalDate.now()) }
     var exportPicking by remember { mutableStateOf<String?>(null) } // "start" / "end"
+
+    fun openExportDialog() {
+        scope.launch {
+            exportStart = viewModel.earliestBillDate() ?: java.time.LocalDate.now()
+            exportEnd = java.time.LocalDate.now()
+            showExportDialog = true
+        }
+    }
     LaunchedEffect(Unit) {
         viewModel.backupMessage.collect { message ->
             message?.let {
@@ -400,7 +408,7 @@ fun BillScreen(
                             }
                         } else {
                             IconButton(
-                                onClick = { if (!backupBusy) showExportDialog = true },
+                                onClick = { if (!backupBusy) openExportDialog() },
                                 enabled = !backupBusy
                             ) {
                                 Icon(

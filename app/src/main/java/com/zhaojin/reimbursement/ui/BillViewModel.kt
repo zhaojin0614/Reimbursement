@@ -82,6 +82,12 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 最早账单的日期（导出默认范围起点），无账单返回 null */
+    suspend fun earliestBillDate(): java.time.LocalDate? =
+        billDao.getEarliestTimestamp()?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        }
+
     /** 读照片字节并解码像素宽高（只读边界不解码整图），供导出按比例排版 */
     private fun readExportPhoto(context: android.content.Context, name: String): BillBackupManager.ExportPhoto? {
         val bytes = BillPhotoStore.readExportBytes(context, name) ?: return null

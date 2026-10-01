@@ -35,12 +35,15 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE id = :id")
     suspend fun getBillById(id: Long): BillEntity?
 
+    /** 最早的账单时间戳（导出默认范围起点用），无账单返回 null */
+    @Query("SELECT MIN(timestamp) FROM bills")
+    suspend fun getEarliestTimestamp(): Long?
+
     /** 导出时间范围查询：[start, end] 闭区间（毫秒），按时间正序 */
     @Query("SELECT * FROM bills WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC")
     suspend fun getBillsBetween(start: Long, end: Long): List<BillEntity>
 
-    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤；排序同列表（日倒序+添加顺序） */
-    @Query(
+    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤；排序同列表（日倒序+添加顺序） */    @Query(
         """
         SELECT * FROM bills
         WHERE (
