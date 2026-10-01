@@ -25,13 +25,9 @@
 
 - xlsx 导出/导入纯函数在 `data/BillBackupManager.kt`，底层 OOXML 读写
   在 `utils/MiniXlsx.kt`——改导出版式必须同步改/补 `BillBackupManagerTest`。
-- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比，高 84px、
-  行高 65 磅 ≈86.7px、行内垂直居中）；同账单照片全部锚在「图片」列原点、
-  以**绝对 EMU 偏移无缝横排**——照片相邻关系不得依赖列宽换算（查看端把
-  「字符→像素」的换算因设备/软件而异，无法穷举，曾两度导致电脑端溢出/
-  重叠）；「图片」列列宽仅按条带 ÷ (6/7) 预留，偏窄时尾部探入右侧空白格
-  即可。**不要改回 twoCellAnchor 或每图一列**——前者把图片拉成格子比例，
-  后者在窄度量查看端横向重叠。
+- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比）；列宽字符
+  数按 MDW=6 保守预留（`COL_WIDTH_SAFETY`），高度不得超过行高 65 磅
+  （≈86.7px）。**不要改回 twoCellAnchor**——会把图片拉成格子比例。
 - 图片存储统一压缩：长边 1600px / JPEG 85（`utils/BillPhotoStore.kt`），
   新入口（拍照/相册/分享接收/导入）一律走 `commitPending`/`saveBytes`。
 - 无障碍/通知等捕账遗留功能已裁剪；收入概念已整体移除，勿再加回。
