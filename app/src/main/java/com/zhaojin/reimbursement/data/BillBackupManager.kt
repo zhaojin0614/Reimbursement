@@ -22,8 +22,8 @@ import kotlin.math.roundToInt
  * 账单数据备份管理器。
  *
  * 导出为**单个 xlsx**：仅一张「维修报销账单」表，照片直接内嵌在工作簿
- * drawing 层（同账单照片在「图片」列内按绝对偏移无缝横排），Excel/WPS
- * 打开即可见图。
+ * drawing 层（同账单照片在「图片」列内按绝对偏移横排，照片间留小空隙），
+ * Excel/WPS 打开即可见图。
  * 导入自动识别：
  * - 新格式：单张「维修报销账单」表（图片内嵌 drawing）；
  * - 旧版 zip 备份包（账单.xlsx + images/）：按「支出账单」表导入，
@@ -53,6 +53,9 @@ object BillBackupManager {
 
     /** 照片显示宽度上限：避免超宽全景图把表格撑爆 */
     private const val PHOTO_DISPLAY_MAX_W_PX = 320
+
+    /** 同账单相邻照片之间的空隙（96dpi 像素）：留一点缝便于区分，仍是绝对偏移不依赖列宽 */
+    private const val PHOTO_STRIP_GAP_PX = 6
 
     /**
      * 「图片」列列宽预留安全系数：列宽「字符」→「像素」的换算取决于查看端
@@ -144,8 +147,9 @@ object BillBackupManager {
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
      * - 固定列宽 日期时间20 / 驾驶员20 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
-     * - 同账单照片全部锚在「图片」列原点，以**绝对 EMU 偏移**无缝横排——
-     *   照片间距/尺寸与列宽字符换算无关，任何查看端都不会互相重叠，
+     * - 同账单照片全部锚在「图片」列原点，以**绝对 EMU 偏移**依次横排
+     *   （相邻留小空隙）——照片间距/尺寸与列宽字符换算无关，任何查看端
+     *   都不会互相重叠，
      *   列宽仅按最宽条带 ÷ 安全系数预留（偏窄时尾部探入右侧空白格，无碍）；
      * - 照片等比缩放（高 ≤80px、宽 ≤320px，不放大），oneCellAnchor 绝对尺寸
      *   **严格保持原图宽高比**，行高 65 磅内垂直居中；
@@ -185,9 +189,9 @@ object BillBackupManager {
                 )
             }
             // 照片锚点：同账单全部照片锚在「图片」列（PHOTO_COL）原点，横向用
-            // 绝对像素偏移（EMU）无缝拼接——相邻关系不经过列宽字符换算，
-            // 任何查看端里照片之间都不会互相重叠；行高 65 磅 = 86.7px 是绝对
-            // 单位，垂直居中偏移在所有查看端一致。
+            // 绝对像素偏移（EMU）依次排开（相邻照片留 PHOTO_STRIP_GAP_PX 空隙）
+            // ——相邻关系不经过列宽字符换算，任何查看端里照片之间都不会互相
+            // 重叠；行高 65 磅 = 86.7px 是绝对单位，垂直居中偏移在所有查看端一致。
             val dataRowHeightPx = DATA_ROW_HEIGHT_PT * 96.0 / 72.0
             val images = sorted.flatMapIndexed { rowIdx, b ->
                 var offX = 0
@@ -199,15 +203,18 @@ object BillBackupManager {
                         colOffPx = offX,
                         rowOffPx = ((dataRowHeightPx - h) / 2).roundToInt().coerceAtLeast(0)
                     )
-                    offX += w
+                    offX += w + PHOTO_STRIP_GAP_PX
                     img
                 }
             }
             // 列宽：固定列 + 「图片」列按最宽照片条带 ÷ 安全系数预留（见常量注释）
             val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
             sorted.forEach { b ->
-                val strip = photosByBill[b.id].orEmpty().sumOf { displaySizePx(it).first }
-                if (strip > 0) {
+                val photos = photosByBill[b.id].orEmpty()
+                if (photos.isNotEmpty()) {
+                    // 条带 = 各照片显示宽 + 照片间空隙（末张不留尾缝）
+                    val strip = photos.sumOf { displaySizePx(it).first + PHOTO_STRIP_GAP_PX } -
+                        PHOTO_STRIP_GAP_PX
                     colWidths[PHOTO_COL] = maxOf(
                         colWidths[PHOTO_COL] ?: 0.0,
                         colWidthChars((strip / COL_WIDTH_SAFETY).roundToInt())

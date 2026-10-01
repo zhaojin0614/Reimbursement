@@ -302,9 +302,9 @@ class BillBackupManagerTest {
         assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="4" max="4" width="40" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="5" max="5" width="20" customWidth="1"/>"""))
-        // 「图片」列只此一列，列宽 = 最宽照片条带按保守度量（MDW=6）预留：
-        // 京东行条带 84+168=252px → 预留 294px → 41.29 字符（照片列 G 起不再占用）
-        assertTrue(sheet1.contains("""<col min="6" max="6" width="41.29" customWidth="1"/>"""))
+        // 「图片」列只此一列，列宽 = 最宽照片条带（含照片间空隙）按保守度量
+        // （MDW=6）预留：京东行条带 84+6+168=258px → 预留 301px → 42.29 字符
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="42.29" customWidth="1"/>"""))
         assertTrue(!sheet1.contains("""<col min="7"""))
         assertTrue(!sheet1.contains("""width="200""""))
         // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3、4）
@@ -340,8 +340,8 @@ class BillBackupManagerTest {
         assertTrue(!drawing.contains("twoCellAnchor"))
         // 美团行（0 基 row=2）竖图 100x200 → 显示 42x84px，锚在「图片」列（F）原点
         assertTrue(drawing.contains("<xdr:from><xdr:col>5</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
-        // 京东行（row=3）两张图横向无缝拼接：第二张偏移 = 第一张显示宽 84px（800100 EMU）
-        assertTrue(drawing.contains("<xdr:from><xdr:col>5</xdr:col><xdr:colOff>${84 * 9525}</xdr:colOff><xdr:row>3</xdr:row>"))
+        // 京东行（row=3）两张图横向排开：第二张偏移 = 第一张显示宽 84px + 空隙 6px
+        assertTrue(drawing.contains("<xdr:from><xdr:col>5</xdr:col><xdr:colOff>${90 * 9525}</xdr:colOff><xdr:row>3</xdr:row>"))
         // 行高 65 磅 ≈ 86.7px，84px 高的图行内垂直居中（偏移 1px = 9525 EMU）
         assertTrue(drawing.contains("<xdr:rowOff>${1 * 9525}</xdr:rowOff>"))
         // 竖图 c3 的 ext = 42x84px（比例 0.5 = 原图 100x200）
