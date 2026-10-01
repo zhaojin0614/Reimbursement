@@ -25,7 +25,7 @@
 
 - xlsx 导出/导入纯函数在 `data/BillBackupManager.kt`，底层 OOXML 读写
   在 `utils/MiniXlsx.kt`——改导出版式必须同步改/补 `BillBackupManagerTest`。
-- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比，高 ≤80px <
+- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比，高 84px、
   行高 65 磅 ≈86.7px、行内垂直居中）；同账单照片全部锚在「图片」列原点、
   以**绝对 EMU 偏移无缝横排**——照片相邻关系不得依赖列宽换算（查看端把
   「字符→像素」的换算因设备/软件而异，无法穷举，曾两度导致电脑端溢出/

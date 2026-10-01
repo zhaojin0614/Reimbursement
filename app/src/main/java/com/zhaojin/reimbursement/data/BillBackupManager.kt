@@ -48,8 +48,8 @@ object BillBackupManager {
      */
     private const val PHOTO_COL = 5
 
-    /** 照片显示高度上限（96dpi 像素）：行高 65 磅 ≈ 86.7px，留 ~8% 余量保证图片完整落在行内 */
-    private const val PHOTO_DISPLAY_MAX_H_PX = 80
+    /** 照片显示高度（96dpi 像素）：贴近行高 65 磅 ≈ 86.7px（占 97%，视觉上填满整行） */
+    private const val PHOTO_DISPLAY_H_PX = 84
 
     /** 照片显示宽度上限：避免超宽全景图把表格撑爆 */
     private const val PHOTO_DISPLAY_MAX_W_PX = 320
@@ -162,7 +162,7 @@ object BillBackupManager {
         fun displaySizePx(p: ExportPhoto): Pair<Int, Int> {
             if (p.widthPx <= 0 || p.heightPx <= 0) return 80 to 80
             val scale = minOf(
-                PHOTO_DISPLAY_MAX_H_PX.toDouble() / p.heightPx,
+                PHOTO_DISPLAY_H_PX.toDouble() / p.heightPx,
                 PHOTO_DISPLAY_MAX_W_PX.toDouble() / p.widthPx,
                 1.0
             )
