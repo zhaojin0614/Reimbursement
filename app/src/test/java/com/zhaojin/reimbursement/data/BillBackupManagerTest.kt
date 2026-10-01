@@ -73,6 +73,8 @@ class BillBackupManagerTest {
         assertEquals(30.38, jd.amount, 1e-9)
         assertEquals(BillBackupManager.SHEET_MAIN, jd.sheet)
         assertEquals(3, jd.row)
+        assertEquals("", jd.driver)
+        assertEquals("", jd.plate)
         val jdImages = backup.embedded[jd.sheet]?.get(jd.row).orEmpty()
         assertEquals(2, jdImages.size)
         assertArrayEquals(fakeImage("a1"), jdImages[0])
@@ -86,6 +88,60 @@ class BillBackupManagerTest {
         val mtImages = backup.embedded[mt.sheet]?.get(mt.row).orEmpty()
         assertEquals(1, mtImages.size)
         assertArrayEquals(fakeImage("c3"), mtImages[0])
+    }
+
+    @Test
+    fun `导出往返 - 驾驶员车牌与内容列`() {
+        val bills = listOf(
+            BillEntity(
+                id = 1, amount = 199.0, title = "换机油",
+                driver = "李四", plate = "苏E88F90",
+                isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 10, 1, 10, 0, 0))
+            )
+        )
+        val backup = BillBackupManager.parseBackup(
+            BillBackupManager.buildWorkbook(bills, emptyMap())
+        )
+        val bill = backup.workbook.bills.single()
+        assertEquals("换机油", bill.title)
+        assertEquals("李四", bill.driver)
+        assertEquals("苏E88F90", bill.plate)
+        // 表头按新列序：日期时间/驾驶员/车牌号/内容/金额/图片
+        val header = com.zhaojin.reimbursement.utils.MiniXlsx.read(
+            BillBackupManager.buildWorkbook(bills, emptyMap())
+        ).single().rows.first()
+        assertEquals(listOf("日期时间", "驾驶员", "车牌号", "内容", "金额", "图片"), header.map { it })
+    }
+
+    @Test
+    fun `解析 - 内容列与旧标题列名兼容`() {
+        // 旧格式用「标题」列名
+        val legacy = MiniXlsx.write(
+            listOf(
+                MiniSheet(
+                    BillBackupManager.SHEET_MAIN,
+                    listOf(
+                        listOf<Any?>("日期时间", "标题", "金额"),
+                        listOf<Any?>("2026-08-30 22:31:05", "京东支付", "30.38")
+                    )
+                )
+            )
+        )
+        assertEquals("京东支付", BillBackupManager.parseBackup(legacy).workbook.bills.single().title)
+        // 新格式用「内容」列名
+        val modern = MiniXlsx.write(
+            listOf(
+                MiniSheet(
+                    BillBackupManager.SHEET_MAIN,
+                    listOf(
+                        listOf<Any?>("日期时间", "内容", "金额"),
+                        listOf<Any?>("2026-08-30 22:31:05", "京东支付", "30.38")
+                    )
+                )
+            )
+        )
+        assertEquals("京东支付", BillBackupManager.parseBackup(modern).workbook.bills.single().title)
     }
 
     @Test
@@ -157,9 +213,10 @@ class BillBackupManagerTest {
         val main = sheets0.single()
         assertEquals(BillBackupManager.SHEET_MAIN, main.name)
         val legacyHeaders: List<Any?> =
-            listOf("日期时间", "分类", "标题", "金额", "平台", "来源应用", "次要来源", "来源包名", "次要包名")
+            listOf("日期时间", "分类", "标题", "金额", "驾驶员", "车牌号", "来源应用", "来源包名", "次要包名")
         val legacyRows = main.rows.drop(1).map { row ->
-            listOf<Any?>(row[0], "餐饮美食", row[1], row[2], "微信钱包", "京东", "", "com.jingdong", "")
+            // 新列序 [日期, 驾驶员, 车牌, 内容, 金额, 图片数] → 旧捕账列序
+            listOf<Any?>(row[0], "餐饮美食", row[3], row[4], "张三", "京A12345", "京东", "com.jingdong", "")
         }
         val reBytes = MiniXlsx.write(
             listOf(MiniSheet(BillBackupManager.SHEET_EXPENSE, listOf(legacyHeaders) + legacyRows))
@@ -167,6 +224,8 @@ class BillBackupManagerTest {
         val parsed = BillBackupManager.parseBackup(reBytes)
         val jd = parsed.workbook.bills.first { it.title == "京东支付" }
         assertEquals(30.38, jd.amount, 1e-9)
+        assertEquals("张三", jd.driver)
+        assertEquals("京A12345", jd.plate)
         assertTrue("捕账格式无图片列 → 无图", jd.photos.isEmpty())
         assertTrue(parsed.images.isEmpty() && parsed.embedded.isEmpty())
     }
@@ -237,14 +296,16 @@ class BillBackupManagerTest {
         val bytes = BillBackupManager.buildWorkbook(sampleBills(), samplePhotos())
         val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
 
-        // 固定列宽：日期时间 20 / 标题 40 / 金额 20（min/max 为 1 基）
+        // 固定列宽：日期时间 20 / 驾驶员 20 / 车牌号 20 / 内容 40 / 金额 20（1 基）
         assertTrue(sheet1.contains("""<col min="1" max="1" width="20" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="2" max="2" width="40" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="2" max="2" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="4" max="4" width="40" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="5" max="5" width="20" customWidth="1"/>"""))
         // 图片列宽 = 一张图的显示宽（该列最大值）：
-        // D 列 max(竖图40px, 方图80px)=80→10.71，E 列 横图160px→22.14
-        assertTrue(sheet1.contains("""<col min="4" max="4" width="10.71" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="5" max="5" width="22.14" customWidth="1"/>"""))
+        // F 列 max(竖图40px, 方图80px)=80→10.71，G 列 横图160px→22.14
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="10.71" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="7" max="7" width="22.14" customWidth="1"/>"""))
         assertTrue(!sheet1.contains("""width="200""""))
         // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3、4）
         assertTrue(sheet1.contains("""<row r="2" ht="65" customHeight="1">"""))
@@ -253,12 +314,12 @@ class BillBackupManagerTest {
         assertTrue(sheet1.contains("""<c r="A1" s="1" t="inlineStr">"""))
         assertTrue(!sheet1.contains("""<c r="A2" s="1"""))
         // 金额列为货币格式样式 s="2"（¥ 两位小数）
-        assertTrue(sheet1.contains("""<c r="C2" s="2"><v>8500</v></c>"""))
+        assertTrue(sheet1.contains("""<c r="E2" s="2"><v>8500</v></c>"""))
         // 合计行在最后一行数据之下：B 列「总金额：」s=3，C 列数值 s=4
         assertTrue(sheet1.contains("""<row r="5">"""))
-        assertTrue(sheet1.contains("""<c r="B5" s="3" t="inlineStr">"""))
+        assertTrue(sheet1.contains("""<c r="D5" s="3" t="inlineStr">"""))
         assertTrue(sheet1.contains("总金额："))
-        assertTrue(sheet1.contains("""<c r="C5" s="4"><v>8555.98</v></c>"""))
+        assertTrue(sheet1.contains("""<c r="E5" s="4"><v>8555.98</v></c>"""))
         // 样式表：货币 numFmt、红字、黄底
         val styles = unzipEntry(bytes, "xl/styles.xml")
         assertTrue(styles.contains("""numFmtId="164" formatCode="&quot;¥&quot;#,##0.00""""))
@@ -276,12 +337,12 @@ class BillBackupManagerTest {
         val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
         // twoCellAnchor：从本格原点铺到下一格原点，显示尺寸恒等于格子（跨设备不溢出）
         assertTrue(drawing.contains("<xdr:twoCellAnchor>"))
-        // 表内第一行（工资行）之后：美团图片从 D 列原点起
-        assertTrue(drawing.contains("<xdr:from><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
-        // 到 E 列 / 下一行原点为止
-        assertTrue(drawing.contains("<xdr:to><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
-        // 同账单两张图横向排开：第二张锚在 E 列
-        assertTrue(drawing.contains("<xdr:from><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
+        // 表内第二数据行（美团）图片从 F 列原点起
+        assertTrue(drawing.contains("<xdr:from><xdr:col>5</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row>"))
+        // 到 G 列 / 下一行原点为止
+        assertTrue(drawing.contains("<xdr:to><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
+        // 同账单两张图横向排开：第二张锚在 G 列
+        assertTrue(drawing.contains("<xdr:from><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row>"))
         // xfrm 保留期望显示尺寸（竖图 40x80px）
         assertTrue(drawing.contains("""cx="${40 * 9525}" cy="${80 * 9525}""""))
     }

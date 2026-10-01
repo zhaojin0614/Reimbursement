@@ -514,7 +514,7 @@ fun BillScreen(
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (searchText.isEmpty()) {
                                             Text(
-                                                text = "搜索标题 / 金额",
+                                                text = "搜索内容 / 金额",
                                                 fontSize = 13.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

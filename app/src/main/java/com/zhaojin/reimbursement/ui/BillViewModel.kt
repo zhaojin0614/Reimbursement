@@ -228,9 +228,13 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     fun addBill(bill: BillEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             billDao.insert(bill)
+            val extra = buildString {
+                if (bill.driver.isNotBlank()) append(" 驾驶员=").append(bill.driver)
+                if (bill.plate.isNotBlank()) append(" 车牌=").append(bill.plate)
+            }
             AppLogger.log(
                 "账单",
-                "添加账单 「${bill.title}」 ¥${bill.amount} " +
+                "添加账单 「${bill.title}」 ¥${bill.amount}$extra " +
                     "日期=${java.time.Instant.ofEpochMilli(bill.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}"
             )
         }
