@@ -2,4 +2,6 @@
 <paths>
     <!-- 账单图片：拍照 pending 临时文件与正式图片都在应用私有 bill_photos/ 下 -->
     <files-path name="bill_photos" path="bill_photos/" />
+    <!-- 日志导出：分享日志时打包的 zip 临时目录 -->
+    <cache-path name="logs_export" path="logs_export/" />
 </paths>

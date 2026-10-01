@@ -8,6 +8,7 @@ import com.zhaojin.reimbursement.data.AppDatabase
 import com.zhaojin.reimbursement.data.BillBackupManager
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.BillPhotoEntity
+import com.zhaojin.reimbursement.utils.AppLogger
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -42,6 +43,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
+            val started = System.currentTimeMillis()
             try {
                 val context = getApplication<Application>()
                 val bills = billDao.getBillsBetween(startMillis, endMillis)
@@ -50,18 +52,26 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     .groupBy { it.billId }
                     .filterKeys { it in billIds }
                     .mapValues { e -> e.value.mapNotNull { photo -> readExportPhoto(context, photo.fileName) } }
+                val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+                val zone = java.time.ZoneId.systemDefault()
+                val rangeStr =
+                    "${java.time.Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(fmt)}" +
+                    "~${java.time.Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(fmt)}"
+                AppLogger.log("导出", "开始导出 范围=$rangeStr 账单数=${bills.size}")
                 BillBackupManager.exportToUri(context, uri, bills, photos)
                     .onSuccess {
                         val photoCount = photos.values.sumOf { it.size }
-                        val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
-                        val zone = java.time.ZoneId.systemDefault()
-                        val range =
-                            "${java.time.Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(fmt)}" +
-                            "~${java.time.Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(fmt)}"
                         _backupMessage.value =
-                            "已导出 $range 共 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                            "已导出 $rangeStr 共 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                        AppLogger.log(
+                            "导出",
+                            "导出成功 范围=$rangeStr 账单=$it 图片=$photoCount 耗时=${System.currentTimeMillis() - started}ms"
+                        )
                     }
-                    .onFailure { _backupMessage.value = "导出失败：${it.message}" }
+                    .onFailure {
+                        _backupMessage.value = "导出失败：${it.message}"
+                        AppLogger.log("导出", "导出失败 范围=$rangeStr 错误=${it.message}")
+                    }
             } finally {
                 _backupBusy.value = false
             }
@@ -225,6 +235,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     photoDao.deleteByBill(id)
                     billDao.deleteById(id)
                 }
+                AppLogger.log("账单", "批量删除 ${ids.size} 条账单 id=$ids")
             }
             _selectedIds.value = emptySet()
         }
@@ -233,28 +244,38 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     fun addBill(bill: BillEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             billDao.insert(bill)
+            AppLogger.log(
+                "账单",
+                "添加账单 「${bill.title}」 ¥${bill.amount} ${if (bill.isIncome) "收入" else "支出"} " +
+                    "日期=${java.time.Instant.ofEpochMilli(bill.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}"
+            )
         }
     }
 
     fun updateTitle(id: Long, title: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val old = billDao.getBillById(id)
             billDao.updateTitle(id, title)
+            AppLogger.log("账单", "修改账单 #$id 标题 「${old?.title}」→「$title」")
         }
     }
 
     /** 修改账单金额 */
     fun updateAmount(id: Long, amount: Double) {
         viewModelScope.launch(Dispatchers.IO) {
+            val old = billDao.getBillById(id)
             billDao.updateAmount(id, amount)
+            AppLogger.log("账单", "修改账单 #$id 金额 ¥${old?.amount}→¥$amount")
         }
     }
 
     /** 账单追加一张图片（拍照/相册导入完成、文件已落盘后调用） */
-    fun addBillPhoto(billId: Long, fileName: String) {
+    fun addBillPhoto(billId: Long, fileName: String, source: String) {
         viewModelScope.launch(Dispatchers.IO) {
             photoDao.insert(
                 BillPhotoEntity(billId = billId, fileName = fileName, createdAt = System.currentTimeMillis())
             )
+            AppLogger.log("图片", "添加图片 账单#$billId 来源=$source 文件=$fileName")
         }
     }
 
@@ -263,17 +284,24 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             photoDao.delete(photo)
             BillPhotoStore.delete(getApplication(), photo.fileName)
+            AppLogger.log("图片", "删除图片 账单#${photo.billId} 文件=${photo.fileName}")
         }
     }
 
     fun deleteBill(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             // 先删图片记录与文件，再删账单记录
-            photoDao.getByBillOnce(id).forEach {
+            val photos = photoDao.getByBillOnce(id)
+            photos.forEach {
                 BillPhotoStore.delete(getApplication(), it.fileName)
             }
             photoDao.deleteByBill(id)
+            val bill = billDao.getBillById(id)
             billDao.deleteById(id)
+            AppLogger.log(
+                "账单",
+                "删除账单 #$id「${bill?.title}」¥${bill?.amount} 含图片${photos.size}张"
+            )
         }
     }
 }

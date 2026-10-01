@@ -113,6 +113,7 @@ import com.zhaojin.reimbursement.ui.theme.GradientExpenseStart
 import com.zhaojin.reimbursement.ui.theme.GradientIncomeEnd
 import com.zhaojin.reimbursement.ui.theme.GradientIncomeStart
 import com.zhaojin.reimbursement.ui.theme.IncomeGreen
+import com.zhaojin.reimbursement.utils.AppLogger
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.launch
 import java.io.File
@@ -184,11 +185,16 @@ fun BillScreen(
                 scope.launch {
                     // pending 转正为正式文件并入库；转正失败则丢弃
                     val name = BillPhotoStore.commitPending(context, file)
-                    if (name != null) viewModel.addBillPhoto(billId, name)
-                    else BillPhotoStore.discard(file)
+                    if (name != null) {
+                        viewModel.addBillPhoto(billId, name, "拍照")
+                    } else {
+                        BillPhotoStore.discard(file)
+                        AppLogger.log("图片", "拍照转正失败已丢弃 账单#$billId")
+                    }
                 }
             } else {
                 BillPhotoStore.discard(file)
+                AppLogger.log("图片", "拍照取消 账单#$billId")
             }
         }
     }
@@ -199,11 +205,12 @@ fun BillScreen(
         val billId = galleryBillId
         galleryBillId = null
         if (uris.isNotEmpty() && billId != null) {
+            AppLogger.log("图片", "相册选图 ${uris.size} 张 账单#$billId")
             scope.launch {
                 // 相册授权是一次性的：逐张复制进私有目录持久保存
                 uris.forEach { uri ->
                     val name = BillPhotoStore.importFromUri(context, uri)
-                    if (name != null) viewModel.addBillPhoto(billId, name)
+                    if (name != null) viewModel.addBillPhoto(billId, name, "相册")
                 }
             }
         }

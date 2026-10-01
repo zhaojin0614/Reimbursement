@@ -2,6 +2,7 @@
 
 package com.zhaojin.reimbursement.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
@@ -30,15 +31,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,7 +81,7 @@ import com.zhaojin.reimbursement.ui.theme.AccentVariant
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 
 /**
- * 设置页：主题色 / 版本信息。（备份与恢复入口在记账页顶部）
+ * 设置页：主题色 / 日志 / 版本信息。
  */
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
@@ -87,6 +92,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     // 弹窗内的草稿选择：点色块/调色板只改草稿，「使用此颜色」统一应用
     var draftAccent by remember { mutableStateOf(AccentVariant.fromPreset(AccentColor.MINT)) }
     var draftCustomColor by remember { mutableStateOf(AccentColor.MINT.primary) }
+    // 日志保留时间选择弹窗
+    var showRetentionDialog by remember { mutableStateOf(false) }
+    var retentionDays by remember {
+        mutableStateOf(com.zhaojin.reimbursement.utils.AppLogger.getRetentionDays(context))
+    }
 
     // 主色调：全局单例状态，选色后即时生效（读取处自动订阅重组）
     val currentAccent = AccentColorRepository.current
@@ -149,6 +159,64 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
 
+            SettingsGroup("日志") {
+                SettingsRow(
+                    icon = Icons.Default.History,
+                    title = "日志保留时间",
+                    onClick = { showRetentionDialog = true }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${retentionDays}天",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                SettingsRow(
+                    icon = Icons.Default.Share,
+                    title = "分享日志文件",
+                    onClick = {
+                        // 打包全部日志为 zip 后走系统分享（微信/文件管理器等均可接收）
+                        val zip = com.zhaojin.reimbursement.utils.AppLogger.exportZip(context)
+                        if (zip == null) {
+                            Toast.makeText(context, "暂无日志文件", Toast.LENGTH_SHORT).show()
+                        } else {
+                            com.zhaojin.reimbursement.utils.AppLogger.log("日志", "分享日志文件 ${zip.name}")
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context, context.packageName + ".fileprovider", zip
+                            )
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "application/zip"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(
+                                android.content.Intent.createChooser(intent, "分享日志文件")
+                            )
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "打包 zip",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                SettingsValueRow(
+                    icon = Icons.Default.Folder,
+                    title = "日志存储位置",
+                    value = "应用私有目录 files/logs"
+                )
+            }
+
             SettingsGroup("关于") {
                 SettingsValueRow(
                     icon = Icons.Default.Info,
@@ -158,6 +226,56 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showRetentionDialog) {
+        GlassCompactDialog(
+            onDismissRequest = { showRetentionDialog = false },
+            title = "日志保留时间",
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text = "超过保留天数的日志会在应用启动时自动删除",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    com.zhaojin.reimbursement.utils.AppLogger.RETENTION_OPTIONS.forEach { days ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    val old = retentionDays
+                                    val effective = com.zhaojin.reimbursement.utils.AppLogger
+                                        .setRetentionDays(context, days)
+                                    retentionDays = effective
+                                    com.zhaojin.reimbursement.utils.AppLogger.log(
+                                        "日志", "修改日志保留时间 ${old}→${effective}天"
+                                    )
+                                    showRetentionDialog = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = retentionDays == days,
+                                onClick = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${days}天",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRetentionDialog = false }) { Text("取消") }
+            }
+        )
     }
 
     if (showAccentDialog) {
@@ -285,6 +403,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                         AccentColor.entries.firstOrNull { it.name == draftAccent.id }
                             ?.let { AccentColorRepository.setPreset(context, it) }
                     }
+                    com.zhaojin.reimbursement.utils.AppLogger.log(
+                        "外观", "修改主题色 「${AccentColorRepository.current.label}」"
+                    )
                     showAccentDialog = false
                 }) { Text("使用此颜色") }
             },
