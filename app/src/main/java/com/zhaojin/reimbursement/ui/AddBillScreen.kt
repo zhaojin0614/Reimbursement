@@ -321,9 +321,13 @@ fun AddBillScreen(
             SoftButton(
                 text = "添加",
                 onClick = {
-                    // 所有字段均可留空（金额留空按 0 记）；仅当填了非法金额时提示
-                    val amt = if (amountText.isBlank()) 0.0 else amountText.toDoubleOrNull()
-                    if (amt == null) {
+                    // 内容、金额必填；驾驶员/车牌号/图片可选
+                    if (title.isBlank()) {
+                        Toast.makeText(context, "请填写内容", Toast.LENGTH_SHORT).show()
+                        return@SoftButton
+                    }
+                    val amt = amountText.toDoubleOrNull()
+                    if (amt == null || amt <= 0) {
                         Toast.makeText(context, "请填写有效金额", Toast.LENGTH_SHORT).show()
                         return@SoftButton
                     }
