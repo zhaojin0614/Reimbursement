@@ -302,10 +302,10 @@ class BillBackupManagerTest {
         assertTrue(sheet1.contains("""<col min="3" max="3" width="20" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="4" max="4" width="40" customWidth="1"/>"""))
         assertTrue(sheet1.contains("""<col min="5" max="5" width="20" customWidth="1"/>"""))
-        // 图片列宽 = 一张图的显示宽按保守度量（MDW=6）预留（该列最大值）：
-        // F 列 max(竖图42px, 方图84px)=84→预留98px→13.29 字符；G 列横图 168px→预留196px→27.29 字符
-        assertTrue(sheet1.contains("""<col min="6" max="6" width="13.29" customWidth="1"/>"""))
-        assertTrue(sheet1.contains("""<col min="7" max="7" width="27.29" customWidth="1"/>"""))
+        // 图片列宽 = 一张图的显示宽 + 4px 间隙（列宽字符按标准公式恰好渲染出该像素宽）：
+        // F 列 max(竖图42px, 方图84px)=84→88px→11.86 字符；G 列横图 168px→172px→23.86 字符
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="11.86" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="7" max="7" width="23.86" customWidth="1"/>"""))
         assertTrue(!sheet1.contains("""width="200""""))
         // 数据行高统一 65 磅（表头占第 1 行，数据行 2、3、4）
         assertTrue(sheet1.contains("""<row r="2" ht="65" customHeight="1">"""))
@@ -362,9 +362,9 @@ class BillBackupManagerTest {
         val drawing = unzipEntry(bytes, "xl/drawings/drawing1.xml")
         // 显示 38x84px：38/84 ≈ 0.452 ≈ 原图 720/1600
         assertTrue(drawing.contains("""cx="${38 * 9525}" cy="${84 * 9525}""""))
-        // 列宽按 MDW=6 保守预留：38×7/6 ≈ 44px → 5.57 字符（任何字体度量下都容得下）
+        // 列宽 = 显示宽 38px + 4px 间隙 = 42px → 5.29 字符
         val sheet1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
-        assertTrue(sheet1.contains("""<col min="6" max="6" width="5.57" customWidth="1"/>"""))
+        assertTrue(sheet1.contains("""<col min="6" max="6" width="5.29" customWidth="1"/>"""))
     }
 
     @Test

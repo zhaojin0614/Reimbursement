@@ -53,13 +53,8 @@ object BillBackupManager {
     /** 照片显示宽度上限：避免超宽全景图把表格撑爆 */
     private const val PHOTO_DISPLAY_MAX_W_PX = 320
 
-    /**
-     * 列宽预留安全系数：列宽「字符」→「像素」的换算取决于查看端字体度量
-     * （标准公式为 MDW=7，中文环境等线/宋体等默认字体 MDW≈6，这正是此前
-     * 电脑端图片溢出格子的原因）。列宽按 MDW=6 的保守度量预留，图片绝对
-     * 尺寸按等比缩放——任何查看端都容得下、且绝不拉伸变形。
-     */
-    private const val COL_WIDTH_SAFETY = 6.0 / 7.0
+    /** 同账单相邻照片之间的空隙（96dpi 像素）：列宽=显示宽+间隙，标准字体度量下精确留出该空隙 */
+    private const val PHOTO_GAP_PX = 4
 
     /** 固定列宽（Excel 字符单位）：日期时间 / 驾驶员 / 车牌号 / 内容 / 金额 */
     private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 20.0, 2 to 20.0, 3 to 40.0, 4 to 20.0)
@@ -143,7 +138,8 @@ object BillBackupManager {
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
      * - 固定列宽 日期时间20 / 驾驶员20 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
-     * - 图片列宽 = 该列照片按保守度量预留的显示宽（一张图的宽度），多张横向排开；
+     * - 图片列宽 = 一张照片的显示宽 + [PHOTO_GAP_PX] 间隙，多张横向排开、
+     *   相邻照片间留出小空隙；
      * - 照片等比缩放（高 ≤84px、宽 ≤320px，不放大），oneCellAnchor 绝对尺寸
      *   **严格保持原图宽高比**，行高 65 磅内垂直居中；
      * - 表头浅灰底；每张表最后一行数据下有「总金额：」合计行（红字黄底）。
@@ -194,8 +190,8 @@ object BillBackupManager {
                     )
                 }
             }
-            // 列宽：固定列 + 图片列按「该列最大显示宽 ÷ 安全系数」预留字符数，
-            // 保证 MDW=6 的中文环境字体度量下格子仍容得下图片
+            // 列宽：固定列 + 图片列 = 照片显示宽 + 间隙；查看端按标准公式
+            // （字符×7+5）恰好渲染出该像素宽，相邻照片间即精确留出该空隙
             val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
             sorted.forEach { b ->
                 photosByBill[b.id].orEmpty().forEachIndexed { k, p ->
@@ -203,7 +199,7 @@ object BillBackupManager {
                     val col = PHOTO_COL + k
                     colWidths[col] = maxOf(
                         colWidths[col] ?: 0.0,
-                        colWidthChars((w / COL_WIDTH_SAFETY).roundToInt())
+                        colWidthChars(w + PHOTO_GAP_PX)
                     )
                 }
             }

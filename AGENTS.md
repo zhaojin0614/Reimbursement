@@ -25,9 +25,14 @@
 
 - xlsx 导出/导入纯函数在 `data/BillBackupManager.kt`，底层 OOXML 读写
   在 `utils/MiniXlsx.kt`——改导出版式必须同步改/补 `BillBackupManagerTest`。
-- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比）；列宽字符
-  数按 MDW=6 保守预留（`COL_WIDTH_SAFETY`），高度不得超过行高 65 磅
-  （≈86.7px）。**不要改回 twoCellAnchor**——会把图片拉成格子比例。
+- 照片导出锚点用 **oneCellAnchor 绝对尺寸**（保持原图宽高比，高 ≤84px <
+  行高 65 磅 ≈86.7px、行内垂直居中）；同账单照片各占一列，列宽 = 显示宽 +
+  4px 间隙（`PHOTO_GAP_PX`）。**不要改回 twoCellAnchor**——会把图片拉成
+  格子比例。
+- **电脑端 Excel 的行高渲染随 Windows 显示缩放走**（125% 缩放时 ht=65pt
+  的行被渲染成 ≈52pt，图片尺寸却不变 → 照片「重叠」进下一行）。这是查看
+  端行为，不是导出文件的问题：100% 缩放或打印/PDF 均正常。曾为此误改
+  三轮布局后全部回滚，勿再为它调整导出版式。
 - 图片存储统一压缩：长边 1600px / JPEG 85（`utils/BillPhotoStore.kt`），
   新入口（拍照/相册/分享接收/导入）一律走 `commitPending`/`saveBytes`。
 - 无障碍/通知等捕账遗留功能已裁剪；收入概念已整体移除，勿再加回。
