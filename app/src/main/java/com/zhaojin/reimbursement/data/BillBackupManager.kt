@@ -22,7 +22,8 @@ import kotlin.math.roundToInt
  * 账单数据备份管理器。
  *
  * 导出为**单个 xlsx**：仅一张「维修报销账单」表，照片直接内嵌在工作簿
- * drawing 层（「图片」列每格按张数横向铺开），Excel/WPS 打开即可见图。
+ * drawing 层（同账单照片在「图片」列内按绝对偏移无缝横排），Excel/WPS
+ * 打开即可见图。
  * 导入自动识别：
  * - 新格式：单张「维修报销账单」表（图片内嵌 drawing）；
  * - 旧版 zip 备份包（账单.xlsx + images/）：按「支出账单」表导入，
@@ -47,17 +48,17 @@ object BillBackupManager {
      */
     private const val PHOTO_COL = 5
 
-    /** 照片显示高度上限（96dpi 像素）：行高 65 磅 ≈ 86.7px，留 3px 余量保证图片完整落在行内 */
-    private const val PHOTO_DISPLAY_MAX_H_PX = 84
+    /** 照片显示高度上限（96dpi 像素）：行高 65 磅 ≈ 86.7px，留 ~8% 余量保证图片完整落在行内 */
+    private const val PHOTO_DISPLAY_MAX_H_PX = 80
 
     /** 照片显示宽度上限：避免超宽全景图把表格撑爆 */
     private const val PHOTO_DISPLAY_MAX_W_PX = 320
 
     /**
-     * 列宽预留安全系数：列宽「字符」→「像素」的换算取决于查看端字体度量
-     * （标准公式为 MDW=7，中文环境等线/宋体等默认字体 MDW≈6，这正是此前
-     * 电脑端图片溢出格子的原因）。列宽按 MDW=6 的保守度量预留，图片绝对
-     * 尺寸按等比缩放——任何查看端都容得下、且绝不拉伸变形。
+     * 「图片」列列宽预留安全系数：列宽「字符」→「像素」的换算取决于查看端
+     * 字体度量（标准 Calibri MDW=7，中文环境等线/宋体等更窄），无法穷举。
+     * 列宽按 MDW=6 保守预留即可——照片之间已用绝对偏移拼接、互不依赖列宽，
+     * 即使某查看端把该列渲染得再窄，条带尾部也只会探进右侧空白格，压不到内容。
      */
     private const val COL_WIDTH_SAFETY = 6.0 / 7.0
 
@@ -143,8 +144,10 @@ object BillBackupManager {
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
      * - 固定列宽 日期时间20 / 驾驶员20 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
-     * - 图片列宽 = 该列照片按保守度量预留的显示宽（一张图的宽度），多张横向排开；
-     * - 照片等比缩放（高 ≤84px、宽 ≤320px，不放大），oneCellAnchor 绝对尺寸
+     * - 同账单照片全部锚在「图片」列原点，以**绝对 EMU 偏移**无缝横排——
+     *   照片间距/尺寸与列宽字符换算无关，任何查看端都不会互相重叠，
+     *   列宽仅按最宽条带 ÷ 安全系数预留（偏窄时尾部探入右侧空白格，无碍）；
+     * - 照片等比缩放（高 ≤80px、宽 ≤320px，不放大），oneCellAnchor 绝对尺寸
      *   **严格保持原图宽高比**，行高 65 磅内垂直居中；
      * - 表头浅灰底；每张表最后一行数据下有「总金额：」合计行（红字黄底）。
      */
@@ -181,29 +184,33 @@ object BillBackupManager {
                     if (n > 0) "${n}张" else null
                 )
             }
-            // 照片锚点：同账单多张横向排开（D、E、F… 列），等比显示、行内垂直居中
-            // （行高 65 磅 = 86.7px 是绝对单位，垂直居中偏移在所有查看端一致）
+            // 照片锚点：同账单全部照片锚在「图片」列（PHOTO_COL）原点，横向用
+            // 绝对像素偏移（EMU）无缝拼接——相邻关系不经过列宽字符换算，
+            // 任何查看端里照片之间都不会互相重叠；行高 65 磅 = 86.7px 是绝对
+            // 单位，垂直居中偏移在所有查看端一致。
             val dataRowHeightPx = DATA_ROW_HEIGHT_PT * 96.0 / 72.0
             val images = sorted.flatMapIndexed { rowIdx, b ->
-                photosByBill[b.id].orEmpty().mapIndexed { k, p ->
+                var offX = 0
+                photosByBill[b.id].orEmpty().map { p ->
                     val (w, h) = displaySizePx(p)
-                    MiniImage(
-                        row = rowIdx + 1, col = PHOTO_COL + k, data = p.data,
+                    val img = MiniImage(
+                        row = rowIdx + 1, col = PHOTO_COL, data = p.data,
                         widthPx = w, heightPx = h,
+                        colOffPx = offX,
                         rowOffPx = ((dataRowHeightPx - h) / 2).roundToInt().coerceAtLeast(0)
                     )
+                    offX += w
+                    img
                 }
             }
-            // 列宽：固定列 + 图片列按「该列最大显示宽 ÷ 安全系数」预留字符数，
-            // 保证 MDW=6 的中文环境字体度量下格子仍容得下图片
+            // 列宽：固定列 + 「图片」列按最宽照片条带 ÷ 安全系数预留（见常量注释）
             val colWidths = LinkedHashMap(FIXED_COL_WIDTHS)
             sorted.forEach { b ->
-                photosByBill[b.id].orEmpty().forEachIndexed { k, p ->
-                    val (w, _) = displaySizePx(p)
-                    val col = PHOTO_COL + k
-                    colWidths[col] = maxOf(
-                        colWidths[col] ?: 0.0,
-                        colWidthChars((w / COL_WIDTH_SAFETY).roundToInt())
+                val strip = photosByBill[b.id].orEmpty().sumOf { displaySizePx(it).first }
+                if (strip > 0) {
+                    colWidths[PHOTO_COL] = maxOf(
+                        colWidths[PHOTO_COL] ?: 0.0,
+                        colWidthChars((strip / COL_WIDTH_SAFETY).roundToInt())
                     )
                 }
             }
