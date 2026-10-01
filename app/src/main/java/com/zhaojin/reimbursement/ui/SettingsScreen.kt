@@ -190,16 +190,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                             Toast.makeText(context, "暂无日志文件", Toast.LENGTH_SHORT).show()
                         } else {
                             com.zhaojin.reimbursement.utils.AppLogger.log("日志", "分享日志文件 ${zip.name}")
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context, context.packageName + ".fileprovider", zip
-                            )
-                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                type = "application/zip"
-                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(
-                                android.content.Intent.createChooser(intent, "分享日志文件")
+                            com.zhaojin.reimbursement.utils.FileShare.share(
+                                context, zip, "application/zip", "分享日志文件"
                             )
                         }
                     }

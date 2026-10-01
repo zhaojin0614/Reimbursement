@@ -4,4 +4,6 @@
     <files-path name="bill_photos" path="bill_photos/" />
     <!-- 日志导出：分享日志时打包的 zip 临时目录 -->
     <cache-path name="logs_export" path="logs_export/" />
+    <!-- 账单导出：分享 xlsx 前的生成目录（每次导出清空重建） -->
+    <cache-path name="exports" path="exports/" />
 </paths>

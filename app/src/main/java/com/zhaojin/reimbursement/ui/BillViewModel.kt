@@ -1,7 +1,6 @@
 package com.zhaojin.reimbursement.ui
 
 import android.app.Application
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.zhaojin.reimbursement.data.AppDatabase
@@ -38,8 +37,11 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _backupMessage = MutableStateFlow<String?>(null)
     val backupMessage: StateFlow<String?> = _backupMessage
 
-    /** 导出时间段账单（照片内嵌）为单个 xlsx；[startMillis, endMillis] 为按日闭区间 */
-    fun exportBackup(uri: Uri, startMillis: Long, endMillis: Long) {
+    /**
+     * 导出时间段账单（照片内嵌）为单个 xlsx 到缓存目录，成功后经
+     * [onExported] 回调交给 UI 弹系统分享面板；[startMillis, endMillis] 为按日闭区间。
+     */
+    fun exportBackup(startMillis: Long, endMillis: Long, onExported: (java.io.File) -> Unit) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
@@ -58,15 +60,17 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     "${java.time.Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(fmt)}" +
                     "~${java.time.Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(fmt)}"
                 AppLogger.log("导出", "开始导出 范围=$rangeStr 账单数=${bills.size}")
-                BillBackupManager.exportToUri(context, uri, bills, photos)
-                    .onSuccess {
+                BillBackupManager.exportToCache(context, "维修报销账单_$rangeStr.xlsx", bills, photos)
+                    .onSuccess { file ->
                         val photoCount = photos.values.sumOf { it.size }
                         _backupMessage.value =
-                            "已导出 $rangeStr 共 $it 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                            "已生成 $rangeStr 共 ${bills.size} 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
                         AppLogger.log(
                             "导出",
-                            "导出成功 范围=$rangeStr 账单=$it 图片=$photoCount 耗时=${System.currentTimeMillis() - started}ms"
+                            "导出成功 文件=${file.name} 账单=${bills.size} 图片=$photoCount " +
+                                "大小=${file.length()}B 耗时=${System.currentTimeMillis() - started}ms"
                         )
+                        onExported(file)
                     }
                     .onFailure {
                         _backupMessage.value = "导出失败：${it.message}"

@@ -1,7 +1,6 @@
 package com.zhaojin.reimbursement.data
 
 import android.content.Context
-import android.net.Uri
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import com.zhaojin.reimbursement.utils.MiniImage
 import com.zhaojin.reimbursement.utils.MiniSheet
@@ -10,6 +9,7 @@ import com.zhaojin.reimbursement.utils.MiniXlsx
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -204,17 +204,22 @@ object BillBackupManager {
         )
     }
 
-    suspend fun exportToUri(
+    /**
+     * 导出到缓存目录（cache/exports/，每次导出清空旧文件），返回生成的
+     * xlsx 文件供系统分享面板发送（微信/文件管理器等）。
+     */
+    suspend fun exportToCache(
         context: Context,
-        uri: Uri,
+        fileName: String,
         bills: List<BillEntity>,
         photosByBill: Map<Long, List<ExportPhoto>>
-    ): Result<Int> = withContext(Dispatchers.IO) {
+    ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val bytes = buildWorkbook(bills, photosByBill)
-            context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-                ?: throw IllegalStateException("无法写入所选位置")
-            bills.size
+            val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val file = File(dir, fileName)
+            file.writeBytes(buildWorkbook(bills, photosByBill))
+            file
         }
     }
 

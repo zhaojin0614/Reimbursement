@@ -122,7 +122,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
-/** 导出文件的 MIME：单个 xlsx（照片内嵌在工作簿里） */
+/** 分享的 xlsx MIME：单个表格文件（照片内嵌在工作簿里） */
 private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 /** 相册一次可选照片上限（系统照片选择器多选） */
@@ -230,32 +230,13 @@ fun BillScreen(
         )
     }
 
-    // ── 导出账单（按日时间段，照片内嵌 xlsx，原「备份」入口收进顶栏）──────
+    // ── 导出账单（按日时间段，照片内嵌 xlsx，生成后弹系统分享面板）────────
     val backupBusy by viewModel.backupBusy.collectAsState()
     var showExportDialog by remember { mutableStateOf(false) }
     // 弹窗内的范围草稿：默认本月 1 日 ~ 今天
     var exportStart by remember { mutableStateOf(java.time.LocalDate.now().withDayOfMonth(1)) }
     var exportEnd by remember { mutableStateOf(java.time.LocalDate.now()) }
     var exportPicking by remember { mutableStateOf<String?>(null) } // "start" / "end"
-    // SAF 回调里取用的待导出范围（进程不被杀即有效）
-    var pendingExportStart by remember { mutableStateOf<java.time.LocalDate?>(null) }
-    var pendingExportEnd by remember { mutableStateOf<java.time.LocalDate?>(null) }
-    val exportBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(XLSX_MIME)
-    ) { uri ->
-        val start = pendingExportStart
-        val end = pendingExportEnd
-        pendingExportStart = null
-        pendingExportEnd = null
-        if (uri != null && start != null && end != null) {
-            val zone = ZoneId.systemDefault()
-            viewModel.exportBackup(
-                uri,
-                start.atStartOfDay(zone).toInstant().toEpochMilli(),
-                end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
-            )
-        }
-    }
     LaunchedEffect(Unit) {
         viewModel.backupMessage.collect { message ->
             message?.let {
@@ -266,9 +247,16 @@ fun BillScreen(
     }
 
     fun launchExport(start: java.time.LocalDate, end: java.time.LocalDate) {
-        pendingExportStart = start
-        pendingExportEnd = end
-        exportBackupLauncher.launch("维修报销账单_${start}_${end}.xlsx")
+        val zone = ZoneId.systemDefault()
+        viewModel.exportBackup(
+            start.atStartOfDay(zone).toInstant().toEpochMilli(),
+            end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+        ) { file ->
+            // 生成成功直接弹系统分享面板（微信/文件管理器等均可接收）
+            com.zhaojin.reimbursement.utils.FileShare.share(
+                context, file, XLSX_MIME, "分享账单表格"
+            )
+        }
     }
 
     if (showAddScreen) {
