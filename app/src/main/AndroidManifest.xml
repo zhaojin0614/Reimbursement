@@ -23,6 +23,25 @@
             </intent-filter>
         </activity>
 
+        <!-- 分享接收：任何应用（截图/微信等）分享图片时可选择本 App，
+             进入选账单挂照片的轻量界面；SEND=单图，SEND_MULTIPLE=多图 -->
+        <activity
+            android:name=".ShareReceiveActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <!-- 账单拍照：FileProvider 提供系统相机写入照片的 content URI -->
         <provider
             android:name="androidx.core.content.FileProvider"

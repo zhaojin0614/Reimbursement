@@ -39,6 +39,10 @@ interface BillDao {
     @Query("SELECT MIN(timestamp) FROM bills")
     suspend fun getEarliestTimestamp(): Long?
 
+    /** 最近 limit 条账单（分享图片选账单挂靠用） */
+    @Query("SELECT * FROM bills ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentBillsOnce(limit: Int): List<BillEntity>
+
     /** 导出时间范围查询：[start, end] 闭区间（毫秒），按时间正序 */
     @Query("SELECT * FROM bills WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC")
     suspend fun getBillsBetween(start: Long, end: Long): List<BillEntity>
