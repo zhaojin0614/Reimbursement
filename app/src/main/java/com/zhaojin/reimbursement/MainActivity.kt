@@ -138,7 +138,10 @@ fun MainApp() {
                 ) { tab ->
                     when (tab) {
                         AppTab.Bills -> stateHolder.SaveableStateProvider(key = "tab_bills") { BillScreen() }
-                        AppTab.Report -> stateHolder.SaveableStateProvider(key = "tab_report") { ReportScreen() }
+                        AppTab.Report -> stateHolder.SaveableStateProvider(key = "tab_report") {
+                            // 报表 tab 上按系统返回 = 切回维修报销 tab，而不是退出 app
+                            ReportScreen(onBack = { selectedTab = AppTab.Bills.ordinal })
+                        }
                     }
                 }
         }

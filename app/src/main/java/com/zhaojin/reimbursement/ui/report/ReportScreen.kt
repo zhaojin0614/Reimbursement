@@ -429,16 +429,19 @@ private fun SummaryCards(
                 leftBorderColor = MaterialTheme.colorScheme.secondary
             )
         }
-        // 比上期：报销增加为红（花得多），减少为绿（花得少）
-        val diffColor = if (prevDiff > 0) ExpenseRed else IncomeGreen
-        val diffSign = if (prevDiff > 0) "+" else ""
-        StatCard(
-            modifier = Modifier.fillMaxWidth(),
-            title = diffLabel,
-            value = "$diffSign${String.format("%.2f", prevDiff)}",
-            valueColor = diffColor,
-            leftBorderColor = MaterialTheme.colorScheme.secondary
-        )
+        // 比上期：报销增加为红（花得多），减少为绿（花得少）。
+        // 自定义时段没有固定上一期可比，不展示这一项。
+        if (periodType != ReportViewModel.PeriodType.CUSTOM) {
+            val diffColor = if (prevDiff > 0) ExpenseRed else IncomeGreen
+            val diffSign = if (prevDiff > 0) "+" else ""
+            StatCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = diffLabel,
+                value = "$diffSign${String.format("%.2f", prevDiff)}",
+                valueColor = diffColor,
+                leftBorderColor = MaterialTheme.colorScheme.secondary
+            )
+        }
     }
 }
 
