@@ -261,7 +261,7 @@ fun BillScreen(
     fun launchExport(start: java.time.LocalDate, end: java.time.LocalDate) {
         pendingExportStart = start
         pendingExportEnd = end
-        exportBackupLauncher.launch("维修报销_账单_${start}_${end}.xlsx")
+        exportBackupLauncher.launch("维修报销账单_${start}_${end}.xlsx")
     }
 
     if (showAddScreen) {
@@ -364,7 +364,7 @@ fun BillScreen(
                             )
                         } else {
                             Text(
-                                text = "记账",
+                                text = "维修报销",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground

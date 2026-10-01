@@ -145,7 +145,7 @@ fun ReportScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("收支报表", fontWeight = FontWeight.Bold, color = LocalReportColors.current.textDark) },
+                    title = { Text("报销报表", fontWeight = FontWeight.Bold, color = LocalReportColors.current.textDark) },
                     navigationIcon = {
                         if (onBack != null) {
                             IconButton(onClick = onBack) {

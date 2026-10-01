@@ -73,7 +73,7 @@ enum class AppTab(
     val icon: ImageVector,
     val iconFilled: ImageVector
 ) {
-    Bills("记账", Icons.Outlined.Receipt, Icons.Filled.Receipt),
+    Bills("维修报销", Icons.Outlined.Receipt, Icons.Filled.Receipt),
     Report("报表", Icons.Outlined.BarChart, Icons.Filled.BarChart)
 }
 
