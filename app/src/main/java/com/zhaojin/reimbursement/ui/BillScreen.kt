@@ -121,7 +121,7 @@ fun BillScreen(
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var billToDelete by remember { mutableStateOf<BillEntity?>(null) }
     var selectedType by remember { mutableStateOf<String?>(null) } // null/全部, 支出, 收入
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddScreen by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var billToEdit by remember { mutableStateOf<BillEntity?>(null) }
 
@@ -130,6 +130,17 @@ fun BillScreen(
     // 账单搜索
     var showSearch by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
+
+    if (showAddScreen) {
+        AddBillScreen(
+            onBack = { showAddScreen = false },
+            onAdd = { bill ->
+                viewModel.addBill(bill)
+                showAddScreen = false
+            }
+        )
+        return
+    }
 
     if (showSettings) {
         SettingsScreen(onBack = { showSettings = false })
@@ -312,7 +323,7 @@ fun BillScreen(
                         SoftFab(
                             icon = Icons.Default.Add,
                             contentDescription = "添加账单",
-                            onClick = { showAddDialog = true }
+                            onClick = { showAddScreen = true }
                         )
                     }
                 }
@@ -482,17 +493,6 @@ fun BillScreen(
                 }
             }
         }
-    }
-
-    // Add bill dialog
-    if (showAddDialog) {
-        AddBillDialog(
-            onAdd = { bill ->
-                viewModel.addBill(bill)
-                showAddDialog = false
-            },
-            onDismiss = { showAddDialog = false }
-        )
     }
 
     // Edit bill dialog：标题/金额一个界面改完
