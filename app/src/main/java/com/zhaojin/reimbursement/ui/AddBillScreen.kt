@@ -350,6 +350,10 @@ fun AddBillScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // 底部导航是悬浮胶囊（约 70dp：上下外距 20 + 胶囊本体 50），表单从其
+            // 下方穿过——多留这段净空，车牌键盘撑开内容滚到底时按钮不被胶囊挡住
+            Spacer(modifier = Modifier.height(84.dp))
         }
     }
 
