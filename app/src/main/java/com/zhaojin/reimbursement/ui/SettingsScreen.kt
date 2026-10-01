@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
@@ -54,6 +55,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhaojin.reimbursement.BuildConfig
+import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.glassBorder
@@ -98,11 +101,63 @@ fun SettingsScreen(onBack: () -> Unit) {
         mutableStateOf(com.zhaojin.reimbursement.utils.AppLogger.getRetentionDays(context))
     }
 
+    // 地区选项维护（添加账单页的可选标签）：点选项改名、垃圾桶删除、底部输入新增
+    val regionOptions = remember {
+        mutableStateListOf<String>().apply { addAll(RegionStore.load(context)) }
+    }
+    var newRegionText by remember { mutableStateOf("") }
+    var editRegionIndex by remember { mutableStateOf<Int?>(null) }
+    var editRegionText by remember { mutableStateOf("") }
+
     // 主色调：全局单例状态，选色后即时生效（读取处自动订阅重组）
     val currentAccent = AccentColorRepository.current
 
     // 拦截系统返回手势/按键回到记账界面，而不是退出应用
     BackHandler(enabled = true) { onBack() }
+
+    if (editRegionIndex != null) {
+        GlassCompactDialog(
+            onDismissRequest = { editRegionIndex = null },
+            title = "修改地区",
+            text = {
+                TextField(
+                    value = editRegionText,
+                    onValueChange = { editRegionText = it },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val idx = editRegionIndex
+                    val name = editRegionText.trim()
+                    if (idx == null) return@TextButton
+                    when {
+                        name.isEmpty() -> Toast.makeText(context, "请输入名称", Toast.LENGTH_SHORT).show()
+                        regionOptions.contains(name) && regionOptions[idx] != name ->
+                            Toast.makeText(context, "该地区已存在", Toast.LENGTH_SHORT).show()
+                        else -> {
+                            val oldName = regionOptions[idx]
+                            regionOptions[idx] = name
+                            RegionStore.save(context, regionOptions)
+                            com.zhaojin.reimbursement.utils.AppLogger.log(
+                                "设置", "修改地区选项「$oldName」→「$name」"
+                            )
+                            editRegionIndex = null
+                            Toast.makeText(context, "已修改", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editRegionIndex = null }) { Text("取消") }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -207,6 +262,95 @@ fun SettingsScreen(onBack: () -> Unit) {
                     title = "日志存储位置",
                     value = "应用私有目录 files/logs"
                 )
+            }
+
+            SettingsGroup("地区") {
+                Text(
+                    text = "添加账单页的可选地区标签，点名称可修改",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 10.dp)
+                )
+                regionOptions.forEachIndexed { index, option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                editRegionIndex = index
+                                editRegionText = option
+                            }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = option,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            editRegionIndex = index
+                            editRegionText = option
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "修改",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            val removed = regionOptions.removeAt(index)
+                            RegionStore.save(context, regionOptions)
+                            com.zhaojin.reimbursement.utils.AppLogger.log(
+                                "设置", "删除地区选项「$removed」，现有：${regionOptions.joinToString("、").ifEmpty { "（空）" }}"
+                            )
+                            Toast.makeText(context, "已删除「$removed」", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "删除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextField(
+                        value = newRegionText,
+                        onValueChange = { newRegionText = it },
+                        placeholder = { Text("新增地区名称", fontSize = 14.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent
+                        )
+                    )
+                    TextButton(onClick = {
+                        val name = newRegionText.trim()
+                        when {
+                            name.isEmpty() -> Toast.makeText(context, "请输入名称", Toast.LENGTH_SHORT).show()
+                            regionOptions.contains(name) -> Toast.makeText(context, "该地区已存在", Toast.LENGTH_SHORT).show()
+                            else -> {
+                                regionOptions.add(name)
+                                RegionStore.save(context, regionOptions)
+                                com.zhaojin.reimbursement.utils.AppLogger.log(
+                                    "设置", "新增地区选项「$name」，现有：${regionOptions.joinToString("、")}"
+                                )
+                                newRegionText = ""
+                                Toast.makeText(context, "已添加「$name」", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) { Text("添加") }
+                }
             }
 
             SettingsGroup("关于") {

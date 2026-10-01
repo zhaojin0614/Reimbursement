@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.zhaojin.reimbursement.ui
 
@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -69,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import android.content.ClipboardManager
 import android.widget.Toast
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import java.io.File
@@ -134,6 +137,7 @@ fun AddBillScreen(
     var amountText by remember { mutableStateOf("") }
     var driver by remember { mutableStateOf("") }
     var plate by remember { mutableStateOf("") }
+    var region by remember { mutableStateOf("") }
     var showPlateBoard by remember { mutableStateOf(false) }
     // 暂存照片（pending 文件，保存账单时统一转正压缩入库；可选）
     val stagedPhotos = remember { mutableStateListOf<File>() }
@@ -145,6 +149,7 @@ fun AddBillScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
     val ioScope = remember { CoroutineScope(Dispatchers.IO) }
+    val regionOptions = remember { RegionStore.load(context) }
 
     // 长按车牌行粘贴：读系统剪贴板，清洗为车牌字符后整体填入
     fun pastePlateFromClipboard() {
@@ -310,7 +315,59 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 4 行：内容（原「标题」）
+            // 第 4 行：地区（可选，点选标签；选项列表在设置界面维护）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "地区",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    regionOptions.forEach { option ->
+                        val selected = option == region
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    else MaterialTheme.colorScheme.surface
+                                )
+                                .border(glassBorder(), RoundedCornerShape(8.dp))
+                                .clickable { region = if (selected) "" else option }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = option,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "可选",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 第 5 行：内容（原「标题」）
             TextField(
                 value = title,
                 colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
@@ -322,7 +379,7 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 5 行：金额
+            // 第 6 行：金额
             TextField(
                 value = amountText,
                 colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
@@ -343,7 +400,7 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 第 6 行：账单图片（可选，保存时随账单一并入库）
+            // 第 7 行：账单图片（可选，保存时随账单一并入库）
             StagedPhotosRow(
                 photos = stagedPhotos,
                 onAddClick = { showPhotoSourceDialog = true },
@@ -383,6 +440,7 @@ fun AddBillScreen(
                             title = title.trim(),
                             driver = driver.trim(),
                             plate = plate.trim(),
+                            region = region.trim(),
                             isIncome = false,
                             timestamp = ts
                         ),

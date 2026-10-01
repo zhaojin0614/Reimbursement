@@ -23,6 +23,9 @@ data class BillEntity(
     /** 车牌号（可选，如 京A12345） */
     @ColumnInfo(defaultValue = "")
     val plate: String = "",
+    /** 地区（可选标签，选项列表在设置中维护） */
+    @ColumnInfo(defaultValue = "")
+    val region: String = "",
     val isIncome: Boolean = false,
     val timestamp: Long
 )
