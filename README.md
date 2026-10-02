@@ -1,6 +1,6 @@
 # 维修报销 (Reimbursement)
 
-一个专注「维修报销记账 + 报表统计」的轻量 Android 应用。账单分类（维修报销/出险记录等，可在设置中维护）可选可增删，无收入概念。从 [捕账 (AppMessageCapture)](../AppMessageCapture) 精简而来。
+一个专注「维修报销记账 + 报表统计」的轻量 Android 应用。账单分类（维修报销/出险记录等，可在设置中维护）可选可增删，无收入概念。从 [捕账 (AppMessageCapture)](https://github.com/zhaojin0614/AppMessageCapture) 精简而来。
 
 ## 功能
 
