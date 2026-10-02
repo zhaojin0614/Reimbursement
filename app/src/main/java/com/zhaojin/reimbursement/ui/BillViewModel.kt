@@ -217,6 +217,13 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         _selectedIds.value = current
     }
 
+    /** 按天批量勾选/取消（日期大框勾选框） */
+    fun setDaySelection(ids: List<Long>, selected: Boolean) {
+        val current = _selectedIds.value.toMutableSet()
+        if (selected) current.addAll(ids) else current.removeAll(ids.toSet())
+        _selectedIds.value = current
+    }
+
     fun enterSelectionMode(id: Long) {
         _selectedIds.value = setOf(id)
     }

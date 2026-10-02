@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -631,6 +632,9 @@ fun BillScreen(
                                         billToEdit = bill
                                     }
                                 },
+                                onToggleDaySelection = { ids, checked ->
+                                    viewModel.setDaySelection(ids, checked)
+                                },
                                 onBillLongClick = { bill ->
                                     if (!isSelectionMode) {
                                         viewModel.enterSelectionMode(bill.id)
@@ -978,7 +982,8 @@ fun DayGroupCard(
     onBillClick: (BillEntity) -> Unit,
     onBillLongClick: (BillEntity) -> Unit,
     onIconClick: (BillEntity) -> Unit = {},
-    onDelete: (BillEntity) -> Unit
+    onDelete: (BillEntity) -> Unit,
+    onToggleDaySelection: (List<Long>, Boolean) -> Unit = { _, _ -> }
 ) {
     val dayTotal = remember(bills) { bills.sumOf { it.amount } }
 
@@ -989,7 +994,7 @@ fun DayGroupCard(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            // Header: date + daily summary
+            // Header: date + daily summary（多选模式带当天全选勾选框）
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1001,11 +1006,22 @@ fun DayGroupCard(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                Text(
-                    text = "¥${String.format("%.2f", dayTotal)}",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "¥${String.format("%.2f", dayTotal)}",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (isSelectionMode) {
+                        val dayIds = bills.map { it.id }
+                        val dayAllSelected = dayIds.isNotEmpty() && dayIds.all { it in selectedIds }
+                        Checkbox(
+                            checked = dayAllSelected,
+                            onCheckedChange = { checked -> onToggleDaySelection(dayIds, checked) },
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
