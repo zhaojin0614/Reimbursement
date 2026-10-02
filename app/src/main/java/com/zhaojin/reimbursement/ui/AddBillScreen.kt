@@ -292,8 +292,11 @@ fun AddBillScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
+                // imePadding 必须套在 verticalScroll 外层：滚动视口整体抬到
+                // 键盘上方，焦点字段的 bringIntoView 才能滚到键盘以上可见
+                // （放内侧只变成内容底部留白，视口仍在键盘下面，字段被盖住）
                 .imePadding()
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
         ) {
