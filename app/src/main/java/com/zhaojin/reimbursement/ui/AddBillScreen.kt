@@ -96,10 +96,18 @@ private val PLATE_PROVINCES =
     listOf("京", "津", "沪", "渝", "冀", "豫", "云", "辽", "黑", "湘", "皖", "鲁", "新", "苏", "浙",
         "赣", "鄂", "桂", "甘", "晋", "蒙", "陕", "吉", "闽", "贵", "粤", "青", "藏", "川", "宁", "琼", "使")
 
-/** 车牌序号字符：字母（不含易混淆的 I/O）+ 数字 + 常见后缀 */
-private val PLATE_CHARS =
-    ('A'..'Z').filter { it != 'I' && it != 'O' }.map { it.toString() } +
-        ('0'..'9').map { it.toString() } + listOf("学", "挂", "警", "港", "澳")
+/**
+ * 车牌序号键盘的固定行布局：字母（不含易混淆的 I/O）三行排满后空三格，
+ * 数字 1-9 独占一行，0 与常用后缀（挂/港/澳/学/警）平分最后一行。
+ * 空串为占位空格。
+ */
+private val PLATE_KEY_ROWS = listOf(
+    listOf("A", "B", "C", "D", "E", "F", "G", "H", "J"),
+    listOf("K", "L", "M", "N", "P", "Q", "R", "S", "T"),
+    listOf("U", "V", "W", "X", "Y", "Z", "", "", ""),
+    listOf("1", "2", "3", "4", "5", "6", "7", "8", "9"),
+    listOf("0", "挂", "港", "澳", "学", "警")
+)
 
 /** 车牌总长上限：省份简称 1 位 + 序号最多 7 位 */
 private const val PLATE_MAX_LEN = 8
@@ -494,6 +502,7 @@ fun AddBillScreen(
     viewerIndex?.let { idx ->
         BillPhotoViewer(
             photoNames = viewerPhotoNames,
+            initialPage = idx,
             onClose = { viewerIndex = null },
             onAdd = {
                 viewerIndex = null
@@ -669,7 +678,6 @@ private fun PlateKeyboard(
     // null = 自动（空牌选省份，否则选序号）；点切换键后手动锁定
     var manualProvinceMode by remember { mutableStateOf<Boolean?>(null) }
     val pickingProvince = manualProvinceMode ?: plate.isEmpty()
-    val keys = if (pickingProvince) PLATE_PROVINCES else PLATE_CHARS
 
     Column(
         modifier = Modifier
@@ -686,28 +694,35 @@ private fun PlateKeyboard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp)
         )
-        keys.chunked(if (pickingProvince) 8 else 9).forEach { rowKeys ->
+        // 键位网格：省份面板 8 列均分；序号面板按固定行布局（字母排满后空三格，末行平分整行）
+        val rows: List<List<String>> =
+            if (pickingProvince) PLATE_PROVINCES.chunked(8) else PLATE_KEY_ROWS
+        rows.forEach { rowKeys ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 rowKeys.forEach { key ->
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(glassBorder(), RoundedCornerShape(6.dp))
-                            .clickable { onChar(key) }
-                            .padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = key,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                    if (key.isEmpty()) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(glassBorder(), RoundedCornerShape(6.dp))
+                                .clickable { onChar(key) }
+                                .padding(vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = key,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }

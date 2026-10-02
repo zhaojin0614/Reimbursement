@@ -88,12 +88,16 @@ private val THUMB_SIZE = 48.dp
 @Composable
 fun BillPhotoViewer(
     photoNames: List<String>,
+    initialPage: Int = 0,
     onClose: () -> Unit,
     onAdd: () -> Unit,
     onDeleteCurrent: (Int) -> Unit
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    val pagerState = rememberPagerState(pageCount = { photoNames.size })
+    val pagerState = rememberPagerState(
+        initialPage = initialPage.coerceIn(0, (photoNames.size - 1).coerceAtLeast(0)),
+        pageCount = { photoNames.size }
+    )
     val thumbListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     // 每页的放大状态（key=页码），用于决定缩略图条是否隐藏
