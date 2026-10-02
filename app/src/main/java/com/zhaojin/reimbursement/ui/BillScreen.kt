@@ -15,7 +15,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1082,7 +1085,10 @@ private fun ExportDateRow(
 }
 
 
-/** 分类筛选胶囊：全部 + 各分类，选中项为主题色渐变胶囊（随主题切换） */
+/**
+ * 分类筛选：每个分类一枚独立胶囊按钮（含「全部」），横向可滑动——
+ * 分类多时不会挤在一屏里。选中项主题色渐变填充，未选中项玻璃描边。
+ */
 @Composable
 private fun CategoryFilterBar(
     options: List<String>,
@@ -1093,26 +1099,26 @@ private fun CategoryFilterBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .border(glassBorder(), RoundedCornerShape(20.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         val items: List<String?> = listOf<String?>(null) + options
         items.forEach { option ->
             val isSelected = option == selected || (option == null && selected == null)
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(50))
                     .background(
                         if (isSelected) Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
-                        else SolidColor(Color.Transparent)
+                        else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    )
+                    .border(
+                        if (isSelected) BorderStroke(0.dp, Color.Transparent) else glassBorder(),
+                        RoundedCornerShape(50)
                     )
                     .clickable { onSelect(option) }
-                    .padding(vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -1120,8 +1126,7 @@ private fun CategoryFilterBar(
                     fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1
                 )
             }
         }
