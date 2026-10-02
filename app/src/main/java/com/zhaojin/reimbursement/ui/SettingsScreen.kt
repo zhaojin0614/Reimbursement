@@ -108,6 +108,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var newRegionText by remember { mutableStateOf("") }
     var editRegionIndex by remember { mutableStateOf<Int?>(null) }
     var editRegionText by remember { mutableStateOf("") }
+    var deleteRegionIndex by remember { mutableStateOf<Int?>(null) }
 
     // 主色调：全局单例状态，选色后即时生效（读取处自动订阅重组）
     val currentAccent = AccentColorRepository.current
@@ -155,6 +156,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { editRegionIndex = null }) { Text("取消") }
+            }
+        )
+    }
+
+    deleteRegionIndex?.let { idx ->
+        val name = regionOptions.getOrNull(idx).orEmpty()
+        GlassCompactDialog(
+            onDismissRequest = { deleteRegionIndex = null },
+            title = "删除地区",
+            text = { Text("确定删除「$name」吗？已保存账单上的该地区标签不受影响。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val removed = regionOptions.removeAt(idx)
+                    RegionStore.save(context, regionOptions)
+                    com.zhaojin.reimbursement.utils.AppLogger.log(
+                        "设置", "删除地区选项「$removed」，现有：${regionOptions.joinToString("、").ifEmpty { "（空）" }}"
+                    )
+                    Toast.makeText(context, "已删除「$removed」", Toast.LENGTH_SHORT).show()
+                    deleteRegionIndex = null
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteRegionIndex = null }) { Text("取消") }
             }
         )
     }
@@ -299,14 +323,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        IconButton(onClick = {
-                            val removed = regionOptions.removeAt(index)
-                            RegionStore.save(context, regionOptions)
-                            com.zhaojin.reimbursement.utils.AppLogger.log(
-                                "设置", "删除地区选项「$removed」，现有：${regionOptions.joinToString("、").ifEmpty { "（空）" }}"
-                            )
-                            Toast.makeText(context, "已删除「$removed」", Toast.LENGTH_SHORT).show()
-                        }) {
+                        IconButton(onClick = { deleteRegionIndex = index }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "删除",

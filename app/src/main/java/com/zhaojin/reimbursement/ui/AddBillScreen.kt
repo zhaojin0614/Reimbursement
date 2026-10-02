@@ -123,28 +123,41 @@ private fun sanitizePlateInput(raw: String): String {
 }
 
 /**
- * 添加账单独立页面。五行：日期 → 驾驶员 → 车牌号（自绘车牌键盘，
- * 不调系统输入法）→ 内容 → 金额。顶栏返回即取消，键盘/面板弹出时
- * 表单可滚动不被遮挡。
+ * 添加/修改账单共用页面：[editing] 传待改账单即进入编辑模式（预填全部
+ * 字段、保存时按原 id 原位更新；图片仍在查看器中管理）。行序：日期 →
+ * 地区 → 车牌号（自绘车牌键盘，不调系统输入法）→ 内容 → 金额 → 图片。
+ * 顶栏返回即取消，键盘/面板弹出时表单可滚动不被遮挡。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddBillScreen(
+    editing: BillEntity? = null,
     onBack: () -> Unit,
-    onAdd: (BillEntity, List<File>) -> Unit
+    onSave: (BillEntity, List<File>) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var amountText by remember { mutableStateOf("") }
-    var driver by remember { mutableStateOf("") }
-    var plate by remember { mutableStateOf("") }
-    var region by remember { mutableStateOf("") }
+    // 编辑模式预填（保存按原 id 原位更新）
+    var title by remember { mutableStateOf(editing?.title.orEmpty()) }
+    var amountText by remember {
+        mutableStateOf(
+            editing?.amount?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: ""
+        )
+    }
+    var driver by remember { mutableStateOf(editing?.driver.orEmpty()) }
+    var plate by remember { mutableStateOf(editing?.plate.orEmpty()) }
+    var region by remember { mutableStateOf(editing?.region.orEmpty()) }
     var showPlateBoard by remember { mutableStateOf(false) }
     // 暂存照片（pending 文件，保存账单时统一转正压缩入库；可选）
     val stagedPhotos = remember { mutableStateListOf<File>() }
     var showPhotoSourceDialog by remember { mutableStateOf(false) }
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
     val today = remember { LocalDate.now() }
-    var selectedDate by remember { mutableStateOf(today) }
+    var selectedDate by remember {
+        mutableStateOf(
+            editing?.timestamp?.let {
+                Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
+            } ?: today
+        )
+    }
     var showDatePicker by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
@@ -205,7 +218,7 @@ fun AddBillScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "添加账单",
+                        text = if (editing == null) "添加账单" else "修改账单",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
@@ -290,32 +303,7 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 3 行：车牌号（点击弹出自绘车牌键盘，长按粘贴，不调系统输入法）
-            PlateField(
-                plate = plate,
-                expanded = showPlateBoard,
-                onClick = {
-                    showPlateBoard = !showPlateBoard
-                    if (showPlateBoard) keyboard?.hide()
-                },
-                onLongPress = { pastePlateFromClipboard() }
-            )
-
-            if (showPlateBoard) {
-                Spacer(modifier = Modifier.height(8.dp))
-                PlateKeyboard(
-                    plate = plate,
-                    onChar = { ch ->
-                        if (plate.length < PLATE_MAX_LEN) plate += ch
-                    },
-                    onDelete = { if (plate.isNotEmpty()) plate = plate.dropLast(1) },
-                    onDone = { showPlateBoard = false }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 第 4 行：地区（可选，点选标签；选项列表在设置界面维护）
+            // 第 3 行：地区（可选，点选标签；选项列表在设置界面维护）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,6 +355,31 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 第 4 行：车牌号（点击弹出自绘车牌键盘，长按粘贴，不调系统输入法）
+            PlateField(
+                plate = plate,
+                expanded = showPlateBoard,
+                onClick = {
+                    showPlateBoard = !showPlateBoard
+                    if (showPlateBoard) keyboard?.hide()
+                },
+                onLongPress = { pastePlateFromClipboard() }
+            )
+
+            if (showPlateBoard) {
+                Spacer(modifier = Modifier.height(8.dp))
+                PlateKeyboard(
+                    plate = plate,
+                    onChar = { ch ->
+                        if (plate.length < PLATE_MAX_LEN) plate += ch
+                    },
+                    onDelete = { if (plate.isNotEmpty()) plate = plate.dropLast(1) },
+                    onDone = { showPlateBoard = false }
+                )
+            }
+
             // 第 5 行：内容（原「标题」）
             TextField(
                 value = title,
@@ -413,9 +426,9 @@ fun AddBillScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             SoftButton(
-                text = "添加",
+                text = if (editing == null) "添加" else "保存",
                 onClick = {
-                    // 内容、金额必填；驾驶员/车牌号/图片可选
+                    // 内容、金额必填；地区/驾驶员/车牌号/图片可选
                     if (title.isBlank()) {
                         Toast.makeText(context, "请填写内容", Toast.LENGTH_SHORT).show()
                         return@SoftButton
@@ -425,17 +438,22 @@ fun AddBillScreen(
                         Toast.makeText(context, "请填写有效金额", Toast.LENGTH_SHORT).show()
                         return@SoftButton
                     }
-                    val ts = if (selectedDate == today) {
-                        System.currentTimeMillis()
-                    } else {
-                        selectedDate
+                    // 编辑模式日期未变则保留原时间戳；改了日期取新日期正午
+                    val editingDate = editing?.timestamp?.let {
+                        Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
+                    }
+                    val ts = when {
+                        editing != null && selectedDate == editingDate -> editing.timestamp
+                        selectedDate == today -> System.currentTimeMillis()
+                        else -> selectedDate
                             .atTime(12, 0)
                             .atZone(ZoneId.systemDefault())
                             .toInstant()
                             .toEpochMilli()
                     }
-                    onAdd(
+                    onSave(
                         BillEntity(
+                            id = editing?.id ?: 0,
                             amount = amt,
                             title = title.trim(),
                             driver = driver.trim(),

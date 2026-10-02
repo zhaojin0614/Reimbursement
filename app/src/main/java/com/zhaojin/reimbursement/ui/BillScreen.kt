@@ -141,7 +141,6 @@ fun BillScreen(
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var billToDelete by remember { mutableStateOf<BillEntity?>(null) }
     var showAddScreen by remember { mutableStateOf(false) }
-    var showEditDialog by remember { mutableStateOf(false) }
     var billToEdit by remember { mutableStateOf<BillEntity?>(null) }
 
     // 设置页
@@ -258,12 +257,22 @@ fun BillScreen(
         }
     }
 
-    if (showAddScreen) {
+    if (showAddScreen || billToEdit != null) {
+        // 添加/修改共用一个界面：billToEdit 非空即编辑模式（预填原值、原位更新）
         AddBillScreen(
-            onBack = { showAddScreen = false },
-            onAdd = { bill, stagedPhotos ->
-                viewModel.addBill(bill, stagedPhotos)
+            editing = billToEdit,
+            onBack = {
                 showAddScreen = false
+                billToEdit = null
+            },
+            onSave = { bill, stagedPhotos ->
+                if (billToEdit != null) {
+                    viewModel.updateBill(bill)
+                } else {
+                    viewModel.addBill(bill, stagedPhotos)
+                }
+                showAddScreen = false
+                billToEdit = null
             }
         )
         return
@@ -577,7 +586,6 @@ fun BillScreen(
                                         viewModel.toggleSelection(bill.id)
                                     } else {
                                         billToEdit = bill
-                                        showEditDialog = true
                                     }
                                 },
                                 onBillLongClick = { bill ->
@@ -603,108 +611,6 @@ fun BillScreen(
                 }
             }
         }
-    }
-
-    // Edit bill dialog：标题/金额一个界面改完
-    if (showEditDialog && billToEdit != null) {
-        val bill = billToEdit!!
-        var editTitle by remember(bill.id) { mutableStateOf(bill.title) }
-        var editAmount by remember(bill.id) {
-            mutableStateOf(
-                if (bill.amount % 1.0 == 0.0) bill.amount.toLong().toString()
-                else bill.amount.toString()
-            )
-        }
-
-        var editDriver by remember(bill.id) { mutableStateOf(bill.driver) }
-        var editPlate by remember(bill.id) { mutableStateOf(bill.plate) }
-
-        val titleChanged = editTitle.isNotBlank() && editTitle.trim() != bill.title
-        val amountChanged = (editAmount.toDoubleOrNull() ?: bill.amount) != bill.amount
-        val driverChanged = editDriver.trim() != bill.driver
-        val plateChanged = editPlate.trim() != bill.plate
-        val hasChanges = titleChanged || amountChanged || driverChanged || plateChanged
-
-        GlassCompactDialog(
-            onDismissRequest = {
-                showEditDialog = false
-                billToEdit = null
-            },
-            title = "编辑账单",
-            text = {
-                Column {
-                    TextField(
-                        value = editTitle,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
-                        onValueChange = { editTitle = it },
-                        label = { Text("内容") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextField(
-                        value = editAmount,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
-                        onValueChange = { newValue ->
-                            // 仅允许数字与小数点
-                            if (newValue.all { it.isDigit() || it == '.' }) {
-                                editAmount = newValue
-                            }
-                        },
-                        label = { Text("金额") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        prefix = { Text("¥") },
-                        textStyle = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextField(
-                        value = editDriver,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
-                        onValueChange = { editDriver = it },
-                        label = { Text("驾驶员") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextField(
-                        value = editPlate,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
-                        onValueChange = { editPlate = it },
-                        label = { Text("车牌号") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                            if (amountChanged) {
-                                editAmount.toDoubleOrNull()?.let { viewModel.updateAmount(bill.id, it) }
-                            }
-                            if (driverChanged || plateChanged) {
-                                viewModel.updateDriverPlate(bill.id, editDriver.trim(), editPlate.trim())
-                            }
-                            showEditDialog = false
-                        billToEdit = null
-                    },
-                    enabled = hasChanges
-                ) {
-                    Text("保存")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showEditDialog = false
-                    billToEdit = null
-                }) {
-                    Text("取消")
-                }
-            }
-        )
     }
 
     // ── 账单图片：来源选择弹窗（无图图标点击 / 查看器「添加图片」共用）──

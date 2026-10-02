@@ -263,6 +263,17 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 修改驾驶员与车牌号 */
+    /** 修改账单（与添加页共用界面整单保存）：全字段原位更新，图片不动 */
+    fun updateBill(bill: BillEntity) {
+        viewModelScope.launch {
+            billDao.update(bill)
+            AppLogger.log(
+                "账单", "修改账单#${bill.id}「${bill.title}」 金额=${bill.amount} 地区=${bill.region} " +
+                    "驾驶员=${bill.driver} 车牌=${bill.plate} 时间=${bill.timestamp}"
+            )
+        }
+    }
+
     fun updateDriverPlate(id: Long, driver: String, plate: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val old = billDao.getBillById(id)

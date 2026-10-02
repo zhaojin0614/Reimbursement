@@ -46,7 +46,7 @@ object BillBackupManager {
     /**
      * 「图片」列的 0 基列号（BILL_HEADERS 顺序固定），内嵌图片锚点从此列起横排
      */
-    private const val PHOTO_COL = 5
+    private const val PHOTO_COL = 6
 
     /** 照片显示高度上限（96dpi 像素）：行高 65 磅 ≈ 86.7px，留 3px 余量保证图片完整落在行内 */
     private const val PHOTO_DISPLAY_MAX_H_PX = 84
@@ -57,8 +57,8 @@ object BillBackupManager {
     /** 同账单相邻照片之间的空隙（96dpi 像素）：列宽=显示宽+间隙，标准字体度量下精确留出该空隙 */
     private const val PHOTO_GAP_PX = 4
 
-    /** 固定列宽（Excel 字符单位）：日期时间 / 驾驶员 / 车牌号 / 内容 / 金额 */
-    private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 20.0, 2 to 20.0, 3 to 40.0, 4 to 20.0)
+    /** 固定列宽（Excel 字符单位）：日期时间 / 驾驶员 / 地区 / 车牌号 / 内容 / 金额 */
+    private val FIXED_COL_WIDTHS = linkedMapOf(0 to 20.0, 1 to 20.0, 2 to 10.0, 3 to 20.0, 4 to 40.0, 5 to 20.0)
 
     /** 数据行高（磅，Excel 行高单位） */
     private const val DATA_ROW_HEIGHT_PT = 65.0
@@ -89,12 +89,13 @@ object BillBackupManager {
     )
     private val IN_DATE_ONLY_PATTERNS = listOf("yyyy-MM-dd", "yyyy/MM/dd")
 
-    private val BILL_HEADERS = listOf("日期时间", "驾驶员", "车牌号", "内容", "金额", PHOTO_HEADER)
+    private val BILL_HEADERS = listOf("日期时间", "驾驶员", "地区", "车牌号", "内容", "金额", PHOTO_HEADER)
 
     data class ParsedBill(
         val amount: Double,
         val title: String,
         val driver: String = "",
+        val region: String = "",
         val plate: String = "",
         val timestamp: Long,
         /** 所在工作表名与物理行号（0 基，表头为 0），用于对位新格式内嵌图片 */
@@ -138,7 +139,7 @@ object BillBackupManager {
 
     /**
      * 构建工作簿字节（纯函数，便于单测）。版式：
-     * - 固定列宽 日期时间20 / 驾驶员20 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
+     * - 固定列宽 日期时间20 / 驾驶员20 / 地区10 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
      * - 同账单照片全部锚在「图片」列原点，以**绝对 EMU 偏移**依次横排
      *   （相邻留 [PHOTO_GAP_PX] 空隙）——照片间距与列宽字符换算无关，
      *   任何查看端里照片之间都不会互相重叠；
@@ -176,7 +177,7 @@ object BillBackupManager {
             val rows = listOf(BILL_HEADERS) + sorted.map { b ->
                 val n = photosByBill[b.id].orEmpty().size
                 listOf<Any?>(
-                    formatTime(b.timestamp), b.driver, b.plate, b.title, b.amount,
+                    formatTime(b.timestamp), b.driver, b.region, b.plate, b.title, b.amount,
                     if (n > 0) "${n}张" else null
                 )
             }
@@ -221,11 +222,11 @@ object BillBackupManager {
                 colWidths = colWidths,
                 rowHeights = rowHeights,
                 headerFill = true,
-                colFormats = mapOf(4 to MONEY_FORMAT),
+                colFormats = mapOf(5 to MONEY_FORMAT),
                 total = MiniTotal(
                     label = "总金额：",
-                    labelCol = 3,
-                    valueCol = 4,
+                    labelCol = 4,
+                    valueCol = 5,
                     // 十进制累加避免二进制浮点尾巴（25.6+30.38 应为 55.98 而非 55.9800…04）
                     value = sorted.fold(java.math.BigDecimal.ZERO) { acc, b ->
                         acc + java.math.BigDecimal.valueOf(b.amount)
@@ -313,11 +314,12 @@ object BillBackupManager {
         val bills = ArrayList<ParsedBill>()
         var badRows = 0
         // 必需列：日期时间、金额。「内容」列兼容旧「标题」列名；
-        // 驾驶员/车牌号为可选列（旧格式没有则导入为空）。
+        // 地区/驾驶员/车牌号为可选列（旧格式没有则导入为空）。
         val col = headerMap(sheet.rows.firstOrNull(), BILL_HEADERS, listOf("日期时间", "金额"), sheet.name)
         val titleCol = col["内容"] ?: col["标题"]
             ?: throw IllegalArgumentException("工作表「${sheet.name}」缺少列：内容")
         val driverCol = col["驾驶员"]
+        val regionCol = col["地区"]
         val plateCol = col["车牌号"]
         sheet.rows.forEachIndexed { rowIdx, row ->
             if (rowIdx == 0) return@forEachIndexed
@@ -333,6 +335,7 @@ object BillBackupManager {
                     amount = amount,
                     title = row.getOrNull(titleCol)?.toString()?.trim() ?: "",
                     driver = driverCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
+                    region = regionCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
                     plate = plateCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
                     timestamp = timestamp,
                     sheet = sheet.name,
@@ -394,7 +397,7 @@ object BillBackupManager {
             val billId = billDao.insert(
                 BillEntity(
                     amount = bill.amount, title = bill.title,
-                    driver = bill.driver, plate = bill.plate,
+                    driver = bill.driver, region = bill.region, plate = bill.plate,
                     isIncome = false, timestamp = bill.timestamp
                 )
             )
