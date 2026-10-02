@@ -263,14 +263,29 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 修改驾驶员与车牌号 */
-    /** 修改账单（与添加页共用界面整单保存）：全字段原位更新，图片不动 */
-    fun updateBill(bill: BillEntity) {
-        viewModelScope.launch {
+    /** 修改账单（与添加页共用界面整单保存）：全字段原位更新；新暂存图片转正挂到该账单 */
+    fun updateBill(bill: BillEntity, stagedPhotos: List<java.io.File> = emptyList()) {
+        viewModelScope.launch(Dispatchers.IO) {
             billDao.update(bill)
             AppLogger.log(
                 "账单", "修改账单#${bill.id}「${bill.title}」 金额=${bill.amount} 地区=${bill.region} " +
                     "驾驶员=${bill.driver} 车牌=${bill.plate} 时间=${bill.timestamp}"
             )
+            stagedPhotos.forEach { file ->
+                val name = BillPhotoStore.commitPending(getApplication(), file)
+                if (name != null) {
+                    photoDao.insert(
+                        BillPhotoEntity(
+                            billId = bill.id, fileName = name,
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                    AppLogger.log("图片", "添加图片 账单#${bill.id} 来源=修改页 文件=$name")
+                } else {
+                    BillPhotoStore.discard(file)
+                    AppLogger.log("图片", "暂存图片转正失败已丢弃 账单#${bill.id}")
+                }
+            }
         }
     }
 

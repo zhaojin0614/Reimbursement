@@ -261,13 +261,16 @@ fun BillScreen(
         // 添加/修改共用一个界面：billToEdit 非空即编辑模式（预填原值、原位更新）
         AddBillScreen(
             editing = billToEdit,
+            existingPhotos = billToEdit?.let { bill ->
+                photosByBill[bill.id].orEmpty().map { it.fileName }
+            }.orEmpty(),
             onBack = {
                 showAddScreen = false
                 billToEdit = null
             },
             onSave = { bill, stagedPhotos ->
                 if (billToEdit != null) {
-                    viewModel.updateBill(bill)
+                    viewModel.updateBill(bill, stagedPhotos)
                 } else {
                     viewModel.addBill(bill, stagedPhotos)
                 }

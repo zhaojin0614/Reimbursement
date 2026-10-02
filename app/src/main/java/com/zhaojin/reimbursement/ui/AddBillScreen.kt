@@ -26,12 +26,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
@@ -132,6 +134,7 @@ private fun sanitizePlateInput(raw: String): String {
 @Composable
 fun AddBillScreen(
     editing: BillEntity? = null,
+    existingPhotos: List<String> = emptyList(),
     onBack: () -> Unit,
     onSave: (BillEntity, List<File>) -> Unit
 ) {
@@ -355,8 +358,6 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Spacer(modifier = Modifier.height(10.dp))
-
             // 第 4 行：车牌号（点击弹出自绘车牌键盘，长按粘贴，不调系统输入法）
             PlateField(
                 plate = plate,
@@ -379,6 +380,8 @@ fun AddBillScreen(
                     onDone = { showPlateBoard = false }
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // 第 5 行：内容（原「标题」）
             TextField(
@@ -413,8 +416,9 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 第 7 行：账单图片（可选，保存时随账单一并入库）
+            // 第 7 行：账单图片（可选，保存时随账单一并入库；修改模式同时展示已有照片）
             StagedPhotosRow(
+                existingPhotos = existingPhotos,
                 photos = stagedPhotos,
                 onAddClick = { showPhotoSourceDialog = true },
                 onRemove = { file ->
@@ -717,9 +721,10 @@ private fun KeyboardActionKey(
     }
 }
 
-/** 暂存照片行：已选小图（可移除）+ 添加入口；图片为可选项 */
+/** 账单图片行：已有照片（修改模式只读）+ 新增暂存照片（可移除）+ 添加入口；过多时横向滚动 */
 @Composable
 private fun StagedPhotosRow(
+    existingPhotos: List<String>,
     photos: SnapshotStateList<File>,
     onAddClick: () -> Unit,
     onRemove: (File) -> Unit
@@ -727,59 +732,94 @@ private fun StagedPhotosRow(
     val context = LocalContext.current
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        photos.forEach { file ->
-            var thumb by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
-            LaunchedEffect(file.absolutePath) {
-                thumb = BillPhotoStore.loadThumbnail(context, file.name, 120)
-            }
-            Box(modifier = Modifier.size(56.dp)) {
-                val bmp = thumb
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "暂存照片",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 已有照片（修改模式只读展示，随账单保存不变）
+            existingPhotos.forEach { name ->
+                var thumb by remember(name) { mutableStateOf<android.graphics.Bitmap?>(null) }
+                LaunchedEffect(name) {
+                    thumb = BillPhotoStore.loadThumbnail(context, name, 120)
                 }
-                // 移除角标
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(18.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                        .clickable { onRemove(file) },
-                    contentAlignment = Alignment.Center
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Text("×", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    val bmp = thumb
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "已有照片",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
+            photos.forEach { file ->
+                var thumb by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+                LaunchedEffect(file.absolutePath) {
+                    thumb = BillPhotoStore.loadThumbnail(context, file.name, 120)
+                }
+                Box(modifier = Modifier.size(56.dp)) {
+                    val bmp = thumb
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "暂存照片",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        )
+                    }
+                    // 移除角标（关闭图标按几何中心摆放，文字 × 字形有偏移）
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(18.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .clickable { onRemove(file) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "移除",
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
+                }
+            }
+            // 添加图片入口（可选）
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .border(glassBorder(), RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAddClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        // 添加图片入口（可选）
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .border(glassBorder(), RoundedCornerShape(8.dp))
-                .clickable(onClick = onAddClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("+", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "图片",
             fontSize = 12.sp,
