@@ -42,14 +42,21 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
      * 导出时间段账单（照片内嵌）为单个 xlsx 到缓存目录，成功后经
      * [onExported] 回调交给 UI 弹系统分享面板；[startMillis, endMillis] 为按日闭区间。
      */
-    fun exportBackup(startMillis: Long, endMillis: Long, onExported: (java.io.File) -> Unit) {
+    fun exportBackup(
+        startMillis: Long,
+        endMillis: Long,
+        categories: List<String>? = null,
+        onExported: (java.io.File) -> Unit
+    ) {
         if (_backupBusy.value) return
         viewModelScope.launch {
             _backupBusy.value = true
             val started = System.currentTimeMillis()
             try {
                 val context = getApplication<Application>()
+                // categories 为空 = 导出全部分类；否则仅导出所选分类的账单
                 val bills = billDao.getBillsBetween(startMillis, endMillis)
+                    .filter { categories.isNullOrEmpty() || it.category in categories }
                 val billIds = bills.mapTo(HashSet()) { it.id }
                 val photos = photoDao.getAllOnce()
                     .groupBy { it.billId }
@@ -60,7 +67,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 val rangeStr =
                     "${java.time.Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(fmt)}" +
                     "~${java.time.Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(fmt)}"
-                AppLogger.log("导出", "开始导出 范围=$rangeStr 账单数=${bills.size}")
+                val catStr = categories?.takeIf { it.isNotEmpty() }?.joinToString("、") ?: "全部"
+                AppLogger.log("导出", "开始导出 范围=$rangeStr 分类=$catStr 账单数=${bills.size}")
                 BillBackupManager.exportToCache(context, "维修报销账单_$rangeStr.xlsx", bills, photos)
                     .onSuccess { file ->
                         val photoCount = photos.values.sumOf { it.size }

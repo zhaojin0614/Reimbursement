@@ -74,6 +74,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -237,11 +238,14 @@ fun BillScreen(
     var exportStart by remember { mutableStateOf(java.time.LocalDate.now()) }
     var exportEnd by remember { mutableStateOf(java.time.LocalDate.now()) }
     var exportPicking by remember { mutableStateOf<String?>(null) } // "start" / "end"
+    // 导出分类多选草稿：空 = 全部分类
+    val exportCategories = remember { mutableStateListOf<String>() }
 
     fun openExportDialog() {
         scope.launch {
             exportStart = viewModel.earliestBillDate() ?: java.time.LocalDate.now()
             exportEnd = java.time.LocalDate.now()
+            exportCategories.clear() // 每次打开重置为 全部分类
             showExportDialog = true
         }
     }
@@ -258,7 +262,8 @@ fun BillScreen(
         val zone = ZoneId.systemDefault()
         viewModel.exportBackup(
             start.atStartOfDay(zone).toInstant().toEpochMilli(),
-            end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+            end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1,
+            exportCategories.toList().ifEmpty { null }
         ) { file ->
             // 生成成功直接弹系统分享面板（微信/文件管理器等均可接收）
             com.zhaojin.reimbursement.utils.FileShare.share(
@@ -688,6 +693,35 @@ fun BillScreen(
                     )
                     ExportDateRow("开始日期", exportStart, dateFmt) { exportPicking = "start" }
                     ExportDateRow("结束日期", exportEnd, dateFmt) { exportPicking = "end" }
+                    Text(
+                        text = "选择要导出的分类（不选 = 全部分类）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 「全部」胶囊：未选任何分类时即全部
+                        val allSelected = exportCategories.isEmpty()
+                        ExportCategoryChip(
+                            label = "全部",
+                            selected = allSelected,
+                            onClick = { exportCategories.clear() }
+                        )
+                        categoryOptions.forEach { option ->
+                            val selected = option in exportCategories
+                            ExportCategoryChip(
+                                label = option,
+                                selected = selected,
+                                onClick = {
+                                    if (selected) exportCategories.remove(option) else exportCategories.add(option)
+                                }
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1132,5 +1166,33 @@ private fun CategoryFilterBar(
                 )
             }
         }
+    }
+}
+
+
+/** 导出弹窗的分类胶囊：选中为主题色渐变填充（随主题切换） */
+@Composable
+private fun ExportCategoryChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val accent = AccentColorRepository.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (selected) Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
+                else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
