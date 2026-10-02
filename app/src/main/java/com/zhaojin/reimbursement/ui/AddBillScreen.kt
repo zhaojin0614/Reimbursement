@@ -155,6 +155,7 @@ private fun sanitizePlateInput(raw: String): String {
 fun AddBillScreen(
     editing: BillEntity? = null,
     existingPhotos: List<String> = emptyList(),
+    defaultCategory: String? = null,
     onBack: () -> Unit,
     onSave: (BillEntity, List<File>, List<String>) -> Unit
 ) {
@@ -203,6 +204,7 @@ fun AddBillScreen(
     var category by remember {
         mutableStateOf(
             editing?.category?.takeIf { it.isNotBlank() }
+                ?: defaultCategory?.takeIf { it.isNotBlank() && it in categoryOptions }
                 ?: categoryOptions.firstOrNull().orEmpty()
         )
     }

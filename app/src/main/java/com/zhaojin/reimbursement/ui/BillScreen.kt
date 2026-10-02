@@ -274,6 +274,8 @@ fun BillScreen(
             existingPhotos = billToEdit?.let { bill ->
                 photosByBill[bill.id].orEmpty().map { it.fileName }
             }.orEmpty(),
+            // 新增时预选列表页当前筛选的分类（全部则用默认第一个）
+            defaultCategory = if (billToEdit == null) selectedCategory else null,
             onBack = {
                 showAddScreen = false
                 billToEdit = null
