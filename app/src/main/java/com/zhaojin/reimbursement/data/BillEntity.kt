@@ -26,6 +26,9 @@ data class BillEntity(
     /** 地区（可选标签，选项列表在设置中维护） */
     @ColumnInfo(defaultValue = "")
     val region: String = "",
+    /** 分类（选项在设置中维护；导出 Excel 按分类分表） */
+    @ColumnInfo(defaultValue = "维修报销")
+    val category: String = "维修报销",
     val isIncome: Boolean = false,
     val timestamp: Long
 )

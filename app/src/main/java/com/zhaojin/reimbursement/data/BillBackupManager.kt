@@ -21,11 +21,12 @@ import kotlin.math.roundToInt
 /**
  * 账单数据备份管理器。
  *
- * 导出为**单个 xlsx**：仅一张「维修报销账单」表，照片直接内嵌在工作簿
- * drawing 层（同账单照片在「图片」列内按绝对偏移横排、留小空隙），
- * Excel/WPS 打开即可见图。
+ * 导出为**单个 xlsx**：按账单分类一表（表名即分类，每张表各自合计），
+ * 照片直接内嵌在工作簿 drawing 层（同账单照片在「图片」列内按绝对偏移
+ * 横排、留小空隙），Excel/WPS 打开即可见图。
  * 导入自动识别：
- * - 新格式：单张「维修报销账单」表（图片内嵌 drawing）；
+ * - 新格式：按分类命名的多张表（图片内嵌 drawing），表名还原为分类；
+ * - 旧版单张「维修报销账单」表（及更早的「支出账单」）→ 归入默认分类；
  * - 旧版 zip 备份包（账单.xlsx + images/）：按「支出账单」表导入，
  *   「收入账单」表（收入功能已移除）忽略；
  * - 「捕账」xlsx：无图片列，按表格导入。
@@ -35,6 +36,9 @@ object BillBackupManager {
 
     /** 新版唯一工作表名 */
     const val SHEET_MAIN = "维修报销账单"
+
+    /** 默认分类：旧版单表导入、按分类分表的兜底 */
+    const val DEFAULT_CATEGORY = "维修报销"
 
     /** 旧版工作表名（导入兼容） */
     const val SHEET_EXPENSE = "支出账单"
@@ -94,6 +98,7 @@ object BillBackupManager {
     data class ParsedBill(
         val amount: Double,
         val title: String,
+        val category: String = "",
         val driver: String = "",
         val region: String = "",
         val plate: String = "",
@@ -138,7 +143,7 @@ object BillBackupManager {
     // ------------------------------------------------------------------
 
     /**
-     * 构建工作簿字节（纯函数，便于单测）。版式：
+     * 构建工作簿字节（纯函数，便于单测）。按分类一表（表名=分类，各自合计）。版式：
      * - 固定列宽 日期时间20 / 驾驶员20 / 地区10 / 车牌号20 / 内容40 / 金额20（货币 ¥ 两位小数）；
      * - 同账单照片全部锚在「图片」列原点，以**绝对 EMU 偏移**依次横排
      *   （相邻留 [PHOTO_GAP_PX] 空隙）——照片间距与列宽字符换算无关，
@@ -236,7 +241,16 @@ object BillBackupManager {
             )
         }
 
-        return MiniXlsx.write(listOf(sheetData(SHEET_MAIN, bills)))
+        // 按分类分组（保持首次出现顺序）：每个分类单独一张表、各自合计
+        fun safeSheetName(name: String): String =
+            name.replace(Regex("[\\[\\]:*?/\\\\]"), "_").take(31).ifBlank { "未分类" }
+
+        val grouped = LinkedHashMap<String, List<BillEntity>>()
+        bills.forEach { bill ->
+            val key = safeSheetName(bill.category.ifBlank { "未分类" })
+            grouped[key] = (grouped[key] ?: emptyList()) + bill
+        }
+        return MiniXlsx.write(grouped.map { (name, list) -> sheetData(name, list) })
     }
 
     /**
@@ -305,23 +319,31 @@ object BillBackupManager {
     fun parseWorkbook(bytes: ByteArray): ParsedWorkbook = parseSheets(MiniXlsx.read(bytes))
 
     private fun parseSheets(sheets: List<MiniSheet>): ParsedWorkbook {
-        // 新格式唯一表「维修报销账单」；旧版兼容读「支出账单」。
-        // 「收入账单」表（收入功能已移除）不解析、直接忽略。
-        val sheet = sheets.firstOrNull { it.name == SHEET_MAIN }
-            ?: sheets.firstOrNull { it.name == SHEET_EXPENSE }
-            ?: throw IllegalArgumentException("未找到「$SHEET_MAIN」或「$SHEET_EXPENSE」工作表")
-
+        require(sheets.isNotEmpty()) { "工作簿没有工作表" }
         val bills = ArrayList<ParsedBill>()
         var badRows = 0
-        // 必需列：日期时间、金额。「内容」列兼容旧「标题」列名；
-        // 地区/驾驶员/车牌号为可选列（旧格式没有则导入为空）。
-        val col = headerMap(sheet.rows.firstOrNull(), BILL_HEADERS, listOf("日期时间", "金额"), sheet.name)
-        val titleCol = col["内容"] ?: col["标题"]
-            ?: throw IllegalArgumentException("工作表「${sheet.name}」缺少列：内容")
-        val driverCol = col["驾驶员"]
-        val regionCol = col["地区"]
-        val plateCol = col["车牌号"]
-        sheet.rows.forEachIndexed { rowIdx, row ->
+        var parsedAny = false
+        sheets.forEach { sheet ->
+            // 「收入账单」表（收入功能已移除）不解析、直接忽略
+            if (sheet.name == SHEET_INCOME) return@forEach
+            // 必需列：日期时间、金额；缺列的表按非账单结构跳过
+            val col = try {
+                headerMap(sheet.rows.firstOrNull(), BILL_HEADERS, listOf("日期时间", "金额"), sheet.name)
+            } catch (e: IllegalArgumentException) {
+                return@forEach
+            }
+            parsedAny = true
+            // 表名即分类：旧版单表（维修报销账单/支出账单）归入默认分类
+            val category = when (sheet.name) {
+                SHEET_MAIN, SHEET_EXPENSE -> DEFAULT_CATEGORY
+                else -> sheet.name
+            }
+            // 「内容」列兼容旧「标题」列名；地区/驾驶员/车牌号为可选列（旧格式没有则导入为空）
+            val titleCol = col["内容"] ?: col["标题"] ?: return@forEach
+            val driverCol = col["驾驶员"]
+            val regionCol = col["地区"]
+            val plateCol = col["车牌号"]
+            sheet.rows.forEachIndexed { rowIdx, row ->
             if (rowIdx == 0) return@forEachIndexed
             if (row.all { it == null || (it is String && it.isBlank()) }) return@forEachIndexed
             // 合计行等非数据行（日期列为空）直接忽略，不计入坏行
@@ -334,6 +356,7 @@ object BillBackupManager {
                 bills += ParsedBill(
                     amount = amount,
                     title = row.getOrNull(titleCol)?.toString()?.trim() ?: "",
+                    category = category,
                     driver = driverCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
                     region = regionCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
                     plate = plateCol?.let { row.getOrNull(it)?.toString()?.trim() } ?: "",
@@ -345,6 +368,10 @@ object BillBackupManager {
             } catch (e: Exception) {
                 badRows++
             }
+            }
+        }
+        if (!parsedAny) {
+            throw IllegalArgumentException("未找到可导入的账单工作表（需包含 日期时间/金额 列）")
         }
         return ParsedWorkbook(bills, badRows)
     }
@@ -397,6 +424,7 @@ object BillBackupManager {
             val billId = billDao.insert(
                 BillEntity(
                     amount = bill.amount, title = bill.title,
+                    category = bill.category,
                     driver = bill.driver, region = bill.region, plate = bill.plate,
                     isIncome = false, timestamp = bill.timestamp
                 )

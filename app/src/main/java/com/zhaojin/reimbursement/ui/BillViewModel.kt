@@ -233,6 +233,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val billId = billDao.insert(bill)
             val extra = buildString {
+                if (bill.category.isNotBlank()) append(" 分类=").append(bill.category)
                 if (bill.driver.isNotBlank()) append(" 驾驶员=").append(bill.driver)
                 if (bill.plate.isNotBlank()) append(" 车牌=").append(bill.plate)
             }
@@ -272,7 +273,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             billDao.update(bill)
             AppLogger.log(
-                "账单", "修改账单#${bill.id}「${bill.title}」 金额=${bill.amount} 地区=${bill.region} " +
+                "账单", "修改账单#${bill.id}「${bill.title}」 金额=${bill.amount} 分类=${bill.category} 地区=${bill.region} " +
                     "驾驶员=${bill.driver} 车牌=${bill.plate} 时间=${bill.timestamp}"
             )
             stagedPhotos.forEach { file ->

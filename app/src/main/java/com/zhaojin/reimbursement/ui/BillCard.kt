@@ -119,6 +119,18 @@ fun BillCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    if (bill.category.isNotBlank()) {
+                        Text(
+                            text = bill.category,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                     Text(
                         text = bill.driver,
                         fontSize = 12.sp,

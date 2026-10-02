@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import android.content.ClipboardManager
 import android.widget.Toast
 import com.zhaojin.reimbursement.data.BillEntity
+import com.zhaojin.reimbursement.data.CategoryStore
 import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.utils.BillPhotoStore
@@ -135,8 +136,9 @@ private fun sanitizePlateInput(raw: String): String {
 
 /**
  * 添加/修改账单共用页面：[editing] 传待改账单即进入编辑模式（预填全部
- * 字段、保存时按原 id 原位更新；图片仍在查看器中管理）。行序：日期 →
- * 地区 → 车牌号（自绘车牌键盘，不调系统输入法）→ 内容 → 金额 → 图片。
+ * 字段、保存时按原 id 原位更新；图片仍在查看器中管理）。行序：分类 →
+ * 日期 → 地区 → 车牌号（自绘车牌键盘，不调系统输入法）→ 内容 → 金额 →
+ * 图片。
  * 顶栏返回即取消，键盘/面板弹出时表单可滚动不被遮挡。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -175,6 +177,14 @@ fun AddBillScreen(
     val context = LocalContext.current
     val ioScope = remember { CoroutineScope(Dispatchers.IO) }
     val regionOptions = remember { RegionStore.load(context) }
+    val categoryOptions = remember { CategoryStore.load(context) }
+    // 分类默认取第一个选项；编辑时预填账单原分类（空则回退）
+    var category by remember {
+        mutableStateOf(
+            editing?.category?.takeIf { it.isNotBlank() }
+                ?: categoryOptions.firstOrNull().orEmpty()
+        )
+    }
     // 已有照片的移除清单：保存时才真正删除，返回不保存即撤销
     val removedExisting = remember { mutableStateListOf<String>() }
     val shownExisting = existingPhotos.filter { it !in removedExisting }
@@ -266,7 +276,53 @@ fun AddBillScreen(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            // 第 1 行：日期
+            // 第 1 行：分类（点选标签；选项列表在设置界面维护，导出 Excel 按分类分表）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "分类",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    categoryOptions.forEach { option ->
+                        val selected = option == category
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    else MaterialTheme.colorScheme.surface
+                                )
+                                .border(glassBorder(), RoundedCornerShape(8.dp))
+                                .clickable { category = option }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = option,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 第 2 行：日期
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -479,6 +535,7 @@ fun AddBillScreen(
                             id = editing?.id ?: 0,
                             amount = amt,
                             title = title.trim(),
+                            category = category.trim(),
                             driver = driver.trim(),
                             plate = plate.trim(),
                             region = region.trim(),

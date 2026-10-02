@@ -20,17 +20,17 @@ class BillBackupManagerTest {
 
     private fun sampleBills(): List<BillEntity> = listOf(
         BillEntity(
-            id = 1, amount = 30.38, title = "京东支付",
+            id = 1, amount = 30.38, title = "京东支付", category = "维修报销",
             isIncome = false,
             timestamp = ts(LocalDateTime.of(2026, 8, 30, 22, 31, 5))
         ),
         BillEntity(
-            id = 2, amount = 8500.0, title = "8月工资",
+            id = 2, amount = 8500.0, title = "8月工资", category = "维修报销",
             isIncome = false,
             timestamp = ts(LocalDateTime.of(2026, 8, 10, 9, 0, 0))
         ),
         BillEntity(
-            id = 3, amount = 25.6, title = "美团外卖",
+            id = 3, amount = 25.6, title = "美团外卖", category = "维修报销",
             isIncome = false,
             timestamp = ts(LocalDateTime.of(2026, 8, 29, 18, 40, 0))
         )
@@ -68,10 +68,11 @@ class BillBackupManagerTest {
         assertEquals(0, backup.workbook.badRows)
         assertEquals(3, backup.workbook.bills.size)
 
-        // 单表「维修报销账单」按日排序：工资(8-10) 行1、美团(8-29) 行2、京东(8-30) 行3
+        // 单表「维修报销」（分类名即表名）按日排序：工资(8-10) 行1、美团(8-29) 行2、京东(8-30) 行3
         val jd = backup.workbook.bills.first { it.title == "京东支付" }
         assertEquals(30.38, jd.amount, 1e-9)
-        assertEquals(BillBackupManager.SHEET_MAIN, jd.sheet)
+        assertEquals("维修报销", jd.sheet)
+        assertEquals("维修报销", jd.category)
         assertEquals(3, jd.row)
         assertEquals("", jd.driver)
         assertEquals("", jd.plate)
@@ -81,7 +82,7 @@ class BillBackupManagerTest {
         assertArrayEquals(fakeImage("b2"), jdImages[1])
 
         val salary = backup.workbook.bills.first { it.title == "8月工资" }
-        assertEquals(BillBackupManager.SHEET_MAIN, salary.sheet)
+        assertEquals("维修报销", salary.sheet)
         assertTrue(backup.embedded[salary.sheet]?.get(salary.row).orEmpty().isEmpty())
 
         val mt = backup.workbook.bills.first { it.title == "美团外卖" }
@@ -211,7 +212,7 @@ class BillBackupManagerTest {
     fun `解析 - 捕账式表格头乱序与多余列不受影响`() {
         val sheets0 = MiniXlsx.read(BillBackupManager.buildWorkbook(sampleBills(), emptyMap()))
         val main = sheets0.single()
-        assertEquals(BillBackupManager.SHEET_MAIN, main.name)
+        assertEquals("维修报销", main.name)
         val legacyHeaders: List<Any?> =
             listOf("日期时间", "分类", "标题", "金额", "驾驶员", "车牌号", "来源应用", "来源包名", "次要包名")
         val legacyRows = main.rows.drop(1).map { row ->
@@ -326,10 +327,10 @@ class BillBackupManagerTest {
         assertTrue(styles.contains("""numFmtId="164" formatCode="&quot;¥&quot;#,##0.00""""))
         assertTrue(styles.contains("FFFF0000"))
         assertTrue(styles.contains("FFFFFF00"))
-        // 仅一张「维修报销账单」表，无收入表
+        // 仅一张「维修报销」分类表，无收入表
         val sheets = com.zhaojin.reimbursement.utils.MiniXlsx.read(bytes)
         assertEquals(1, sheets.size)
-        assertEquals(BillBackupManager.SHEET_MAIN, sheets.single().name)
+        assertEquals("维修报销", sheets.single().name)
     }
 
     @Test
@@ -398,6 +399,38 @@ class BillBackupManagerTest {
         assertEquals("", legacyBill.region)
         assertEquals("苏A1B2C3", legacyBill.plate)
         assertEquals("老王", legacyBill.driver)
+    }
+
+    @Test
+    fun `导出 - 按分类分表各自合计且往返还原分类`() {
+        val bills = listOf(
+            BillEntity(
+                id = 1, amount = 100.0, title = "维修一", category = "维修报销", isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 8, 1, 10, 0, 0))
+            ),
+            BillEntity(
+                id = 2, amount = 50.0, title = "出险一", category = "出险记录", isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 8, 2, 10, 0, 0))
+            ),
+            BillEntity(
+                id = 3, amount = 30.0, title = "维修二", category = "维修报销", isIncome = false,
+                timestamp = ts(LocalDateTime.of(2026, 8, 3, 10, 0, 0))
+            )
+        )
+        val bytes = BillBackupManager.buildWorkbook(bills, emptyMap())
+        // 分表顺序 = 账单首次出现的分类顺序；表名即分类
+        val sheets = MiniXlsx.read(bytes)
+        assertEquals(listOf("维修报销", "出险记录"), sheets.map { it.name })
+        // 各表各自合计：维修 130（第 4 行金额列 F）、出险 50（第 3 行金额列 F）
+        val ws1 = unzipEntry(bytes, "xl/worksheets/sheet1.xml")
+        assertTrue(ws1.contains("""<c r="F4" s="4"><v>130</v></c>"""))
+        val ws2 = unzipEntry(bytes, "xl/worksheets/sheet2.xml")
+        assertTrue(ws2.contains("""<c r="F3" s="4"><v>50</v></c>"""))
+        // 往返还原分类
+        val backup = BillBackupManager.parseBackup(bytes)
+        assertEquals(3, backup.workbook.bills.size)
+        assertEquals("维修报销", backup.workbook.bills.first { it.title == "维修二" }.category)
+        assertEquals("出险记录", backup.workbook.bills.first { it.title == "出险一" }.category)
     }
 
     @Test
