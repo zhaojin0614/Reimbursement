@@ -104,6 +104,8 @@ import com.zhaojin.reimbursement.ui.components.SwipeableItem
 import com.zhaojin.reimbursement.ui.components.SwipeableItemCoordinator
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.isDarkTheme
+import com.zhaojin.reimbursement.data.CategoryStore
+import com.zhaojin.reimbursement.ui.theme.AccentColorRepository
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
 import com.zhaojin.reimbursement.ui.theme.GradientExpenseEnd
@@ -145,12 +147,17 @@ fun BillScreen(
 
     // 设置页
     var showSettings by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // 分类筛选胶囊的选项（null = 全部）；关闭设置后重载，增删改即时生效
+    val categoryOptions = remember(showSettings) {
+        com.zhaojin.reimbursement.data.CategoryStore.load(context)
+    }
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
     // 账单搜索
     var showSearch by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
-
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     // ── 账单图片（多张）：拍照 / 相册 / 查看器状态 ──────────────────────
     // 无图图标点击 → sourcePickerFor（选择来源）；有图图标点击 → viewerBill
@@ -478,6 +485,13 @@ fun BillScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                // 分类筛选胶囊：全部 + 各分类（选中后列表与统计只看该分类）
+                CategoryFilterBar(
+                    options = categoryOptions,
+                    selected = selectedCategory,
+                    onSelect = { viewModel.setCategoryFilter(it) }
+                )
+
                 // Pull-down stats panel
                 BillPullDownStatsPanel(
                     pullOffset = pullOffset.value,
@@ -1064,5 +1078,52 @@ private fun ExportDateRow(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary
         )
+    }
+}
+
+
+/** 分类筛选胶囊：全部 + 各分类，选中项为主题色渐变胶囊（随主题切换） */
+@Composable
+private fun CategoryFilterBar(
+    options: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit
+) {
+    val accent = AccentColorRepository.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .border(glassBorder(), RoundedCornerShape(20.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        val items: List<String?> = listOf<String?>(null) + options
+        items.forEach { option ->
+            val isSelected = option == selected || (option == null && selected == null)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        if (isSelected) Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
+                        else SolidColor(Color.Transparent)
+                    )
+                    .clickable { onSelect(option) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = option ?: "全部",
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }

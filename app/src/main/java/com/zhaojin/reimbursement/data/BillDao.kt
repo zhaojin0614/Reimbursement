@@ -18,10 +18,11 @@ interface BillDao {
     @Query(
         """SELECT * FROM bills
            WHERE (:type IS NULL OR isIncome = :type)
+           AND (:category IS NULL OR category = :category)
            ORDER BY date(timestamp / 1000, 'unixepoch', 'localtime') DESC, id ASC
            LIMIT :limit"""
     )
-    fun getBillsFiltered(type: Boolean?, limit: Int): Flow<List<BillEntity>>
+    fun getBillsFiltered(type: Boolean?, category: String?, limit: Int): Flow<List<BillEntity>>
 
     /** 报表时间范围查询：自某时点（如当前周期往前 5 个周期）起的全部账单 */
     @Query("SELECT * FROM bills WHERE timestamp >= :since ORDER BY timestamp DESC")
@@ -55,26 +56,27 @@ interface BillDao {
             OR CAST(amount AS TEXT) LIKE '%' || :query || '%'
         )
         AND (:type IS NULL OR isIncome = :type)
+        AND (:category IS NULL OR category = :category)
         ORDER BY date(timestamp / 1000, 'unixepoch', 'localtime') DESC, id ASC
         LIMIT :limit
         """
     )
-    fun searchBills(query: String, type: Boolean?, limit: Int): Flow<List<BillEntity>>
+    fun searchBills(query: String, type: Boolean?, category: String?, limit: Int): Flow<List<BillEntity>>
 
-    @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0")
-    fun getTotalExpense(): Flow<Double?>
+    @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0 AND (:category IS NULL OR category = :category)")
+    fun getTotalExpense(category: String?): Flow<Double?>
 
     @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 1")
     fun getTotalIncome(): Flow<Double?>
 
-    @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0 AND timestamp >= :startOfMonth")
-    fun getMonthExpense(startOfMonth: Long): Flow<Double?>
+    @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0 AND timestamp >= :startOfMonth AND (:category IS NULL OR category = :category)")
+    fun getMonthExpense(startOfMonth: Long, category: String?): Flow<Double?>
 
     @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 1 AND timestamp >= :startOfMonth")
     fun getMonthIncome(startOfMonth: Long): Flow<Double?>
 
-    @Query("SELECT COUNT(*) FROM bills WHERE isIncome = 0")
-    fun getExpenseCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM bills WHERE isIncome = 0 AND (:category IS NULL OR category = :category)")
+    fun getExpenseCount(category: String?): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM bills WHERE isIncome = 1")
     fun getIncomeCount(): Flow<Int>

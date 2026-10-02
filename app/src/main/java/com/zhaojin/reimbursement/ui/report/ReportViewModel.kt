@@ -165,11 +165,25 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val elapsedDays = calculateElapsedDays(type, offset, currentRange.start, currentRange.end, LocalDate.now())
         val dailyAvg = currentTotal / elapsedDays
 
+        // 分类构成：当期账单按分类汇总，金额降序，占比相对当期总额
+        val categoryShares = currentBills
+            .groupBy { it.category.ifBlank { "未分类" } }
+            .map { (name, list) ->
+                val sum = list.sumOf { it.amount }
+                CategoryShare(
+                    name = name,
+                    amount = sum,
+                    fraction = if (currentTotal > 0) (sum / currentTotal).toFloat() else 0f
+                )
+            }
+            .sortedByDescending { it.amount }
+
         return ReportUiState(
             periodLabel = currentRange.label,
             periodTotal = currentTotal,
             dailyAvg = dailyAvg,
             prevDiff = currentTotal - prevTotal,
+            categoryShares = categoryShares,
             trendData = calculateTrendData(currentBills, type, offset, custom),
             barData = calculateBarData(bills, type, offset),
             currentYear = currentRange.start.year,
@@ -336,6 +350,7 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val periodTotal: Double = 0.0,
         val dailyAvg: Double = 0.0,
         val prevDiff: Double = 0.0,
+        val categoryShares: List<CategoryShare> = emptyList(),
         val trendData: List<TrendPoint> = emptyList(),
         val barData: List<BarPoint> = emptyList(),
         val currentYear: Int = java.time.LocalDate.now().year,
@@ -346,6 +361,9 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     data class TrendPoint(val label: String, val amount: Double, val dateKey: String)
+
+    /** 分类构成：当期内某分类的合计与占当期总额比例（0~1） */
+    data class CategoryShare(val name: String, val amount: Double, val fraction: Float)
     data class BarPoint(val label: String, val amount: Double, val tooltipLabel: String)
     data class DateRange(
         val start: LocalDate,

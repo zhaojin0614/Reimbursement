@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -113,6 +114,16 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _limit = MutableStateFlow(PAGE_SIZE)
     private val _searchQuery = MutableStateFlow("")
 
+    /** 记账页分类筛选：null = 全部分类；列表与统计卡片都跟随该筛选 */
+    private val _selectedCategory = MutableStateFlow<String?>(null)
+    val selectedCategory: StateFlow<String?> = _selectedCategory.asStateFlow()
+
+    /** UI 调用：切换分类筛选（切回 null 即全部） */
+    fun setCategoryFilter(category: String?) {
+        _selectedCategory.value = category
+        _limit.value = PAGE_SIZE
+    }
+
     /** UI 调用：设置账单搜索关键词（空 = 关闭搜索） */
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -122,7 +133,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     /** 一次账单列表查询的全部参数（任一变化即重查） */
     private data class BillQuery(
         val limit: Int,
-        val query: String
+        val query: String,
+        val category: String?
     )
 
     /**
@@ -131,13 +143,13 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
      * 隐身（而筛选视图能看到），条数分页没有此不一致问题。
      */
     val bills: StateFlow<List<BillEntity>> = combine(
-        _limit, _searchQuery, ::BillQuery
+        _limit, _searchQuery, _selectedCategory, ::BillQuery
     ).flatMapLatest { q ->
         when {
             // 搜索优先：关键词命中标题/金额文本
             q.query.isNotBlank() ->
-                billDao.searchBills(q.query.trim(), null, q.limit)
-            else -> billDao.getBillsFiltered(null, q.limit)
+                billDao.searchBills(q.query.trim(), null, q.category, q.limit)
+            else -> billDao.getBillsFiltered(null, q.category, q.limit)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -146,9 +158,9 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         _limit.value += PAGE_SIZE
     }
 
-    val totalExpense: StateFlow<Double> = billDao.getTotalExpense()
-        .map { it ?: 0.0 }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val totalExpense: StateFlow<Double> = _selectedCategory.flatMapLatest { category ->
+        billDao.getTotalExpense(category).map { it ?: 0.0 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     /**
      * Reactive startOfMonth that re-emits at every month boundary,
@@ -175,14 +187,15 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             .toEpochMilli()
 
     /** 本月维修报销合计（记账界面大卡片展示） */
-    val monthExpense: StateFlow<Double> = reactiveStartOfMonth
-        .flatMapLatest { start ->
-            billDao.getMonthExpense(start).map { it ?: 0.0 }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val monthExpense: StateFlow<Double> = combine(reactiveStartOfMonth, _selectedCategory) { start, category ->
+        start to category
+    }.flatMapLatest { (start, category) ->
+        billDao.getMonthExpense(start, category).map { it ?: 0.0 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val expenseCount: StateFlow<Int> = billDao.getExpenseCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val expenseCount: StateFlow<Int> = _selectedCategory.flatMapLatest { category ->
+        billDao.getExpenseCount(category)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedIds: StateFlow<Set<Long>> = _selectedIds

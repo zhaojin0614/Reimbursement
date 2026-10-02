@@ -227,6 +227,15 @@ fun ReportScreen(
 
                 Spacer(modifier = Modifier.height(ComponentGap))
 
+                // 分类构成：各分类金额与占比条（仅有账单时显示）
+                if (uiState.categoryShares.isNotEmpty()) {
+                    CategoryBreakdownCard(
+                        shares = uiState.categoryShares,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    Spacer(modifier = Modifier.height(ComponentGap))
+                }
+
                 // Trend line chart
                 TrendLineChartSection(
                     periodType = periodType,
@@ -1246,6 +1255,62 @@ private fun RangePickerDayCell(
                 color = if (date == today) accent else LocalReportColors.current.textDark,
                 fontWeight = if (date == today) FontWeight.Bold else FontWeight.Normal
             )
+        }
+    }
+}
+
+
+/** 分类构成卡片：每个分类一行（名称、金额、占比、比例条），金额降序 */
+@Composable
+private fun CategoryBreakdownCard(
+    shares: List<ReportViewModel.CategoryShare>,
+    modifier: Modifier = Modifier
+) {
+    SoftCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "分类构成",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            shares.forEach { share ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = share.name,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "¥%,.2f（%.0f%%）".format(share.amount, share.fraction * 100),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(share.fraction.coerceIn(0.02f, 1f))
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
         }
     }
 }
