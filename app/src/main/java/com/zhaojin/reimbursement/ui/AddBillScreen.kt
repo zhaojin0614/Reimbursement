@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -63,10 +67,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -91,6 +97,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+
+/** 会调起输入法的文本字段（用于输入法弹出时自动滚动对位） */
+private enum class ImeField { Driver, Title, Amount }
 
 /** 车牌省份简称（含「使」馆牌） */
 private val PLATE_PROVINCES =
@@ -178,6 +187,18 @@ fun AddBillScreen(
     val ioScope = remember { CoroutineScope(Dispatchers.IO) }
     val regionOptions = remember { RegionStore.load(context) }
     val categoryOptions = remember { CategoryStore.load(context) }
+
+    // 输入法弹出时自动把焦点字段滚进可视区（否则最下方的金额会被键盘盖住）：
+    // 每次 IME 高度变化都重新触发一次 bringIntoView，动画全程持续对位
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    var focusedField by remember { mutableStateOf<ImeField?>(null) }
+    val fieldRequesters = remember {
+        ImeField.entries.associateWith { BringIntoViewRequester() }
+    }
+    LaunchedEffect(imeBottom, focusedField) {
+        val field = focusedField ?: return@LaunchedEffect
+        if (imeBottom > 0) fieldRequesters.getValue(field).bringIntoView()
+    }
     // 分类默认取第一个选项；编辑时预填账单原分类（空则回退）
     var category by remember {
         mutableStateOf(
@@ -372,7 +393,10 @@ fun AddBillScreen(
                 onValueChange = { driver = it },
                 label = { Text("驾驶员") },
                 textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusEvent { if (it.isFocused) focusedField = ImeField.Driver }
+                    .bringIntoViewRequester(fieldRequesters.getValue(ImeField.Driver)),
                 singleLine = true
             )
 
@@ -462,7 +486,10 @@ fun AddBillScreen(
                 onValueChange = { title = it },
                 label = { Text("内容") },
                 textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusEvent { if (it.isFocused) focusedField = ImeField.Title }
+                    .bringIntoViewRequester(fieldRequesters.getValue(ImeField.Title)),
                 singleLine = true
             )
 
@@ -479,7 +506,10 @@ fun AddBillScreen(
                     }
                 },
                 label = { Text("金额") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusEvent { if (it.isFocused) focusedField = ImeField.Amount }
+                    .bringIntoViewRequester(fieldRequesters.getValue(ImeField.Amount)),
                 singleLine = true,
                 prefix = { Text("¥") },
                 textStyle = MaterialTheme.typography.headlineMedium.copy(
