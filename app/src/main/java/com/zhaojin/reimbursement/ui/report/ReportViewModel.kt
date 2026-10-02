@@ -165,9 +165,9 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val elapsedDays = calculateElapsedDays(type, offset, currentRange.start, currentRange.end, LocalDate.now())
         val dailyAvg = currentTotal / elapsedDays
 
-        // 分类构成：当期账单按分类汇总，金额降序，占比相对当期总额
-        val categoryShares = currentBills
-            .groupBy { it.category.ifBlank { "未分类" } }
+        // 分类构成：当期账单按分类汇总（占比相对当期总额），并保留各分类明细供点击查看
+        val categoryBills = currentBills.groupBy { it.category.ifBlank { "未分类" } }
+        val categoryShares = categoryBills
             .map { (name, list) ->
                 val sum = list.sumOf { it.amount }
                 CategoryShare(
@@ -184,6 +184,7 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
             dailyAvg = dailyAvg,
             prevDiff = currentTotal - prevTotal,
             categoryShares = categoryShares,
+            categoryBills = categoryBills,
             trendData = calculateTrendData(currentBills, type, offset, custom),
             barData = calculateBarData(bills, type, offset),
             currentYear = currentRange.start.year,
@@ -351,6 +352,7 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val dailyAvg: Double = 0.0,
         val prevDiff: Double = 0.0,
         val categoryShares: List<CategoryShare> = emptyList(),
+        val categoryBills: Map<String, List<BillEntity>> = emptyMap(),
         val trendData: List<TrendPoint> = emptyList(),
         val barData: List<BarPoint> = emptyList(),
         val currentYear: Int = java.time.LocalDate.now().year,

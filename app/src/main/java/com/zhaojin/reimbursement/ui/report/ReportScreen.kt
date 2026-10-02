@@ -9,6 +9,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -45,8 +47,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.LocalDate
 import java.time.YearMonth
+import kotlin.math.atan2
 import kotlin.math.ceil
+import kotlin.math.sqrt
 
+import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.glassBorder
@@ -108,9 +113,88 @@ fun ReportScreen(
     val currentOffset by viewModel.currentOffset.collectAsState()
 
     var showCustomRangePicker by remember { mutableStateOf(false) }
+    // 点击分类构成后查看的分类账单明细
+    var billsCategory by remember { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = onBack != null) {
         onBack?.invoke()
+    }
+
+    billsCategory?.let { category ->
+        val catBills = uiState.categoryBills[category].orEmpty().sortedByDescending { it.timestamp }
+        val catTotal = catBills.sumOf { it.amount }
+        GlassCompactDialog(
+            onDismissRequest = { billsCategory = null },
+            title = "$category · ${uiState.periodLabel}",
+            text = {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(catBills, key = { it.id }) { bill ->
+                        val date = java.time.Instant.ofEpochMilli(bill.timestamp)
+                            .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = date.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd")),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(44.dp)
+                            )
+                            Text(
+                                text = bill.title.ifBlank { "未填写内容" },
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            )
+                            Text(
+                                text = "¥%,.2f".format(bill.amount),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Text(
+                                text = "合计（${catBills.size}笔）",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "¥%,.2f".format(catTotal),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { billsCategory = null }) { Text("关闭") }
+            }
+        )
     }
 
     if (showCustomRangePicker) {
@@ -227,10 +311,13 @@ fun ReportScreen(
 
                 Spacer(modifier = Modifier.height(ComponentGap))
 
-                // 分类构成：各分类金额与占比条（仅有账单时显示）
+                // 分类构成：饼图 + 图例（仅有账单时显示），点击分类查看当期账单明细
                 if (uiState.categoryShares.isNotEmpty()) {
                     CategoryBreakdownCard(
                         shares = uiState.categoryShares,
+                        totalAmount = uiState.periodTotal,
+                        periodLabel = uiState.periodLabel,
+                        onCategoryClick = { billsCategory = it },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                     Spacer(modifier = Modifier.height(ComponentGap))
@@ -1260,18 +1347,31 @@ private fun RangePickerDayCell(
 }
 
 
-/** 分类构成卡片：每个分类一行（名称、金额、占比、比例条），金额降序 */
+/** 分类构成饼图配色（按序循环取色） */
+private val CategoryPieColors = listOf(
+    Color(0xFF5B8DEF), Color(0xFF66BB6A), Color(0xFFFFA726), Color(0xFFAB47BC),
+    Color(0xFFEF5350), Color(0xFF26C6DA), Color(0xFFEC407A), Color(0xFF8D6E63)
+)
+
+/**
+ * 分类构成：环形饼图 + 图例（占比/金额），点击扇区或图例行查看该分类
+ * 在当期的账单明细。
+ */
 @Composable
 private fun CategoryBreakdownCard(
     shares: List<ReportViewModel.CategoryShare>,
+    totalAmount: Double,
+    periodLabel: String,
+    onCategoryClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val total = shares.sumOf { it.amount }.coerceAtLeast(0.0001)
     SoftCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
                 text = "分类构成",
@@ -1279,36 +1379,103 @@ private fun CategoryBreakdownCard(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            shares.forEach { share ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = share.name,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Canvas(
+                    modifier = Modifier
+                        .size(190.dp)
+                        .pointerInput(shares) {
+                            detectTapGestures { pos ->
+                                val dx = pos.x - size.width / 2f
+                                val dy = pos.y - size.height / 2f
+                                if (sqrt(dx * dx + dy * dy) > minOf(size.width, size.height) / 2f) {
+                                    return@detectTapGestures
+                                }
+                                // 画布扇区从 -90°（12 点方向）顺时针展开，触点角度换算回同一坐标系
+                                var angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
+                                angle = (angle + 90f + 360f) % 360f
+                                var acc = 0f
+                                shares.forEachIndexed { i, share ->
+                                    val sweep = (share.amount / total * 360.0).toFloat().coerceAtLeast(0.01f)
+                                    if (angle in acc..(acc + sweep)) {
+                                        onCategoryClick(share.name)
+                                        return@detectTapGestures
+                                    }
+                                    acc += sweep
+                                }
+                            }
+                        }
+                ) {
+                    val ringWidth = 38.dp.toPx()
+                    val radius = (size.minDimension - ringWidth) / 2f
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    var start = -90f
+                    shares.forEachIndexed { i, share ->
+                        val sweep = (share.amount / total * 360.0).toFloat().coerceAtLeast(0.01f)
+                        drawArc(
+                            color = CategoryPieColors[i % CategoryPieColors.size],
+                            startAngle = start,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = Offset(center.x - radius, center.y - radius),
+                            size = Size(radius * 2f, radius * 2f),
+                            style = Stroke(width = ringWidth)
                         )
-                        Text(
-                            text = "¥%,.2f（%.0f%%）".format(share.amount, share.fraction * 100),
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        start += sweep
                     }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "总金额",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "¥%,.2f".format(totalAmount),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = periodLabel,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            shares.forEachIndexed { i, share ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onCategoryClick(share.name) },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(share.fraction.coerceIn(0.02f, 1f))
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(CategoryPieColors[i % CategoryPieColors.size])
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = share.name,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "%.0f%%".format(share.fraction * 100),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "¥%,.2f".format(share.amount),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
