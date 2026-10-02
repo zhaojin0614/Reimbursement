@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -53,6 +54,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -725,6 +727,8 @@ private fun OptionMaintainGroup(
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
 
     SettingsGroup(title) {
+        // 关闭最小触控目标膨胀：图标按钮按 30dp 实际尺寸占位，子项行距更紧凑
+        CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
         Text(
             text = hint,
             fontSize = 12.sp,
@@ -778,14 +782,16 @@ private fun OptionMaintainGroup(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextField(
                 value = newText,
                 onValueChange = { newText = it },
                 placeholder = { Text("新增${title}名称", fontSize = 14.sp) },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
                 singleLine = true,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
@@ -807,6 +813,7 @@ private fun OptionMaintainGroup(
                     }
                 }
             }) { Text("添加") }
+        }
         }
     }
 
