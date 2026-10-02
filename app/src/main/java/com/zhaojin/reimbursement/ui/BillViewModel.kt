@@ -264,7 +264,11 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 修改驾驶员与车牌号 */
     /** 修改账单（与添加页共用界面整单保存）：全字段原位更新；新暂存图片转正挂到该账单 */
-    fun updateBill(bill: BillEntity, stagedPhotos: List<java.io.File> = emptyList()) {
+    fun updateBill(
+        bill: BillEntity,
+        stagedPhotos: List<java.io.File> = emptyList(),
+        removedExistingPhotos: List<String> = emptyList()
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             billDao.update(bill)
             AppLogger.log(
@@ -284,6 +288,15 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     BillPhotoStore.discard(file)
                     AppLogger.log("图片", "暂存图片转正失败已丢弃 账单#${bill.id}")
+                }
+            }
+            // 修改页移除的已有照片：删记录 + 删文件
+            removedExistingPhotos.forEach { name ->
+                val photo = photoDao.getByBillOnce(bill.id).firstOrNull { it.fileName == name }
+                if (photo != null) {
+                    photoDao.delete(photo)
+                    BillPhotoStore.delete(getApplication(), name)
+                    AppLogger.log("图片", "删除图片 账单#${bill.id} 来源=修改页 文件=$name")
                 }
             }
         }

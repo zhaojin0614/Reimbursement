@@ -136,7 +136,7 @@ fun AddBillScreen(
     editing: BillEntity? = null,
     existingPhotos: List<String> = emptyList(),
     onBack: () -> Unit,
-    onSave: (BillEntity, List<File>) -> Unit
+    onSave: (BillEntity, List<File>, List<String>) -> Unit
 ) {
     // 编辑模式预填（保存按原 id 原位更新）
     var title by remember { mutableStateOf(editing?.title.orEmpty()) }
@@ -166,6 +166,11 @@ fun AddBillScreen(
     val context = LocalContext.current
     val ioScope = remember { CoroutineScope(Dispatchers.IO) }
     val regionOptions = remember { RegionStore.load(context) }
+    // 已有照片的移除清单：保存时才真正删除，返回不保存即撤销
+    val removedExisting = remember { mutableStateListOf<String>() }
+    val shownExisting = existingPhotos.filter { it !in removedExisting }
+    val viewerPhotoNames = shownExisting + stagedPhotos.map { it.name }
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
 
     // 长按车牌行粘贴：读系统剪贴板，清洗为车牌字符后整体填入
     fun pastePlateFromClipboard() {
@@ -215,6 +220,7 @@ fun AddBillScreen(
         onBack()
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -418,13 +424,15 @@ fun AddBillScreen(
 
             // 第 7 行：账单图片（可选，保存时随账单一并入库；修改模式同时展示已有照片）
             StagedPhotosRow(
-                existingPhotos = existingPhotos,
+                existingPhotos = shownExisting,
                 photos = stagedPhotos,
                 onAddClick = { showPhotoSourceDialog = true },
                 onRemove = { file ->
                     BillPhotoStore.discard(file)
                     stagedPhotos.remove(file)
-                }
+                },
+                onRemoveExisting = { name -> removedExisting.add(name) },
+                onPhotoClick = { idx -> viewerIndex = idx }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -466,7 +474,8 @@ fun AddBillScreen(
                             isIncome = false,
                             timestamp = ts
                         ),
-                        stagedPhotos.toList()
+                        stagedPhotos.toList(),
+                        removedExisting.toList()
                     )
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -476,6 +485,32 @@ fun AddBillScreen(
             // 下方穿过——多留这段净空，车牌键盘撑开内容滚到底时按钮不被胶囊挡住
             Spacer(modifier = Modifier.height(84.dp))
         }
+    }
+
+    // 照片全屏查看器：点缩略图进入，添加/删除与界面联动（最后一张删除后自动关闭）
+    viewerIndex?.let { idx ->
+        BillPhotoViewer(
+            photoNames = viewerPhotoNames,
+            onClose = { viewerIndex = null },
+            onAdd = {
+                viewerIndex = null
+                showPhotoSourceDialog = true
+            },
+            onDeleteCurrent = { index ->
+                val existingCount = shownExisting.size
+                if (index < existingCount) {
+                    removedExisting.add(shownExisting[index])
+                } else {
+                    val stagedIdx = index - existingCount
+                    stagedPhotos.getOrNull(stagedIdx)?.let { BillPhotoStore.discard(it) }
+                    stagedPhotos.removeAt(stagedIdx)
+                }
+            }
+        )
+        LaunchedEffect(viewerPhotoNames.size) {
+            if (viewerPhotoNames.isEmpty()) viewerIndex = null
+        }
+    }
     }
 
     // Date picker dialog
@@ -721,13 +756,15 @@ private fun KeyboardActionKey(
     }
 }
 
-/** 账单图片行：已有照片（修改模式只读）+ 新增暂存照片（可移除）+ 添加入口；过多时横向滚动 */
+/** 账单图片行：已有照片（可查看/移除）+ 新增暂存照片（可查看/移除）+ 添加入口；过多时横向滚动 */
 @Composable
 private fun StagedPhotosRow(
     existingPhotos: List<String>,
     photos: SnapshotStateList<File>,
     onAddClick: () -> Unit,
-    onRemove: (File) -> Unit
+    onRemove: (File) -> Unit,
+    onRemoveExisting: (String) -> Unit,
+    onPhotoClick: (Int) -> Unit
 ) {
     val context = LocalContext.current
     Row(
@@ -741,30 +778,49 @@ private fun StagedPhotosRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 已有照片（修改模式只读展示，随账单保存不变）
-            existingPhotos.forEach { name ->
+            // 已有照片：点击全屏查看，× 移除（保存时生效）
+            existingPhotos.forEachIndexed { idx, name ->
                 var thumb by remember(name) { mutableStateOf<android.graphics.Bitmap?>(null) }
                 LaunchedEffect(name) {
                     thumb = BillPhotoStore.loadThumbnail(context, name, 120)
                 }
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    val bmp = thumb
-                    if (bmp != null) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "已有照片",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                Box(modifier = Modifier.size(56.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onPhotoClick(idx) }
+                    ) {
+                        val bmp = thumb
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "已有照片",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    // 移除角标（保存时才真正删除）
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(18.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .clickable { onRemoveExisting(name) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "移除",
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp)
                         )
                     }
                 }
             }
-            photos.forEach { file ->
+            photos.forEachIndexed { idx, file ->
                 var thumb by remember(file.absolutePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
                 LaunchedEffect(file.absolutePath) {
                     thumb = BillPhotoStore.loadThumbnail(context, file.name, 120)
@@ -779,6 +835,7 @@ private fun StagedPhotosRow(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(8.dp))
+                                .clickable { onPhotoClick(existingPhotos.size + idx) }
                         )
                     } else {
                         Box(

@@ -268,9 +268,9 @@ fun BillScreen(
                 showAddScreen = false
                 billToEdit = null
             },
-            onSave = { bill, stagedPhotos ->
+            onSave = { bill, stagedPhotos, removedExisting ->
                 if (billToEdit != null) {
-                    viewModel.updateBill(bill, stagedPhotos)
+                    viewModel.updateBill(bill, stagedPhotos, removedExisting)
                 } else {
                     viewModel.addBill(bill, stagedPhotos)
                 }
