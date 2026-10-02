@@ -113,7 +113,7 @@ fun BillCard(
             }
             // 第 2 行：驾驶员居左；右侧 地区-车牌号（有哪个显哪个，地区在前）
             val plateInfo = listOf(bill.region, bill.plate).filter { it.isNotBlank() }.joinToString("-")
-            if (bill.driver.isNotBlank() || plateInfo.isNotEmpty()) {
+            if (bill.driver.isNotBlank() || plateInfo.isNotEmpty() || bill.category.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
