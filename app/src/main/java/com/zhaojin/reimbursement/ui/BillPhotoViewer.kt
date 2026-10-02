@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
+import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.launch
 
@@ -376,7 +377,10 @@ private fun ThumbnailStrip(
     }
 }
 
-/** 底部操作按钮：图标 + 文字，白字半透明黑底胶囊（无涟漪，与全局观感一致） */
+/**
+ * 底部操作按钮：主题色图标 + 文字（随主题切换），半透明表面色胶囊 + 描边
+ * ——胶囊自带底色，图片无论纯白还是深色都清晰可辨。
+ */
 @Composable
 private fun ViewerAction(
     icon: ImageVector,
@@ -385,7 +389,8 @@ private fun ViewerAction(
 ) {
     Row(
         modifier = Modifier
-            .background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(22.dp))
+            .border(glassBorder(), RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -394,12 +399,12 @@ private fun ViewerAction(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.White,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(18.dp)
         )
         Text(
             text = label,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 12.sp,
             maxLines = 1
         )

@@ -238,6 +238,94 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
 
+            SettingsGroup("地区") {
+                Text(
+                    text = "添加账单页的可选地区标签，点名称可修改",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 10.dp)
+                )
+                regionOptions.forEachIndexed { index, option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                editRegionIndex = index
+                                editRegionText = option
+                            }
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = option,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                editRegionIndex = index
+                                editRegionText = option
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "修改",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { deleteRegionIndex = index },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "删除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextField(
+                        value = newRegionText,
+                        onValueChange = { newRegionText = it },
+                        placeholder = { Text("新增地区名称", fontSize = 14.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent
+                        )
+                    )
+                    TextButton(onClick = {
+                        val name = newRegionText.trim()
+                        when {
+                            name.isEmpty() -> Toast.makeText(context, "请输入名称", Toast.LENGTH_SHORT).show()
+                            regionOptions.contains(name) -> Toast.makeText(context, "该地区已存在", Toast.LENGTH_SHORT).show()
+                            else -> {
+                                regionOptions.add(name)
+                                RegionStore.save(context, regionOptions)
+                                com.zhaojin.reimbursement.utils.AppLogger.log(
+                                    "设置", "新增地区选项「$name」，现有：${regionOptions.joinToString("、")}"
+                                )
+                                newRegionText = ""
+                                Toast.makeText(context, "已添加「$name」", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) { Text("添加") }
+                }
+            }
+
             SettingsGroup("日志") {
                 SettingsRow(
                     icon = Icons.Default.History,
@@ -286,88 +374,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                     title = "日志存储位置",
                     value = "应用私有目录 files/logs"
                 )
-            }
-
-            SettingsGroup("地区") {
-                Text(
-                    text = "添加账单页的可选地区标签，点名称可修改",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, top = 10.dp)
-                )
-                regionOptions.forEachIndexed { index, option ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                editRegionIndex = index
-                                editRegionText = option
-                            }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = option,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = {
-                            editRegionIndex = index
-                            editRegionText = option
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "修改",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        IconButton(onClick = { deleteRegionIndex = index }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "删除",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextField(
-                        value = newRegionText,
-                        onValueChange = { newRegionText = it },
-                        placeholder = { Text("新增地区名称", fontSize = 14.sp) },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent
-                        )
-                    )
-                    TextButton(onClick = {
-                        val name = newRegionText.trim()
-                        when {
-                            name.isEmpty() -> Toast.makeText(context, "请输入名称", Toast.LENGTH_SHORT).show()
-                            regionOptions.contains(name) -> Toast.makeText(context, "该地区已存在", Toast.LENGTH_SHORT).show()
-                            else -> {
-                                regionOptions.add(name)
-                                RegionStore.save(context, regionOptions)
-                                com.zhaojin.reimbursement.utils.AppLogger.log(
-                                    "设置", "新增地区选项「$name」，现有：${regionOptions.joinToString("、")}"
-                                )
-                                newRegionText = ""
-                                Toast.makeText(context, "已添加「$name」", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }) { Text("添加") }
-                }
             }
 
             SettingsGroup("关于") {
