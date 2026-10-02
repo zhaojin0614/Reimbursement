@@ -407,6 +407,22 @@ fun BillScreen(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
+                            IconButton(
+                                onClick = {
+                                    viewModel.exportSelected(selectedIds) { file ->
+                                        com.zhaojin.reimbursement.utils.FileShare.share(
+                                            context, file, XLSX_MIME, "分享选中的账单"
+                                        )
+                                    }
+                                },
+                                enabled = !backupBusy && selectedIds.isNotEmpty()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "导出选中",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             IconButton(onClick = { showDeleteSelectedDialog = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,

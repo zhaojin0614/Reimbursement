@@ -32,6 +32,10 @@ interface BillDao {
     @Query("SELECT * FROM bills")
     suspend fun getAllBillsOnce(): List<BillEntity>
 
+    /** 按 id 集合取账单（多选导出用） */
+    @Query("SELECT * FROM bills WHERE id IN (:ids)")
+    suspend fun getBillsByIds(ids: List<Long>): List<BillEntity>
+
     /** 按 id 取单条（删除等操作记录日志用），不存在返回 null */
     @Query("SELECT * FROM bills WHERE id = :id")
     suspend fun getBillById(id: Long): BillEntity?

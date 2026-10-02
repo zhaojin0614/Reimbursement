@@ -285,6 +285,58 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 修改驾驶员与车牌号 */
+    /** 导出多选的账单：按分类分表（复用按分类分表逻辑），照片内嵌 */
+    fun exportSelected(ids: Set<Long>, onExported: (java.io.File) -> Unit) {
+        if (_backupBusy.value || ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _backupBusy.value = true
+            val started = System.currentTimeMillis()
+            try {
+                val context = getApplication<Application>()
+                val bills = billDao.getBillsByIds(ids.toList())
+                val photos = photoDao.getAllOnce()
+                    .groupBy { it.billId }
+                    .filterKeys { it in ids }
+                    .mapValues { e -> e.value.mapNotNull { photo -> readExportPhoto(context, photo.fileName) } }
+                val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")
+                val zone = java.time.ZoneId.systemDefault()
+                val dates = bills.map {
+                    java.time.Instant.ofEpochMilli(it.timestamp).atZone(zone).toLocalDate()
+                }
+                val rangeStr = if (dates.isEmpty()) {
+                    "选中"
+                } else {
+                    val min = dates.min()
+                    val max = dates.max()
+                    if (min == max) min.format(fmt) else "${min.format(fmt)}~${max.format(fmt)}"
+                }
+                AppLogger.log(
+                    "导出",
+                    "导出选中账单 分类=${bills.map { it.category }.distinct().joinToString("、")} " +
+                        "账单数=${bills.size}"
+                )
+                BillBackupManager.exportToCache(context, "维修报销账单_选中_$rangeStr.xlsx", bills, photos)
+                    .onSuccess { file ->
+                        val photoCount = photos.values.sumOf { it.size }
+                        _backupMessage.value =
+                            "已导出选中 ${bills.size} 条账单" + if (photoCount > 0) "、$photoCount 张图片" else ""
+                        AppLogger.log(
+                            "导出",
+                            "导出成功 文件=${file.name} 账单=${bills.size} 图片=$photoCount " +
+                                "大小=${file.length()}B 耗时=${System.currentTimeMillis() - started}ms"
+                        )
+                        onExported(file)
+                    }
+                    .onFailure {
+                        _backupMessage.value = "导出失败：${it.message}"
+                        AppLogger.log("导出", "导出选中账单失败 错误=${it.message}")
+                    }
+            } finally {
+                _backupBusy.value = false
+            }
+        }
+    }
+
     /** 修改账单（与添加页共用界面整单保存）：全字段原位更新；新暂存图片转正挂到该账单 */
     fun updateBill(
         bill: BillEntity,
