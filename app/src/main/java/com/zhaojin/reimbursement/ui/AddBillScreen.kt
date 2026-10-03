@@ -272,10 +272,10 @@ fun AddBillScreen(
         pendingCaptureFile?.let { BillPhotoStore.discard(it) }
     }
 
-    // ── 新增模式草稿会话：恢复 → 自动保存 → 退出询问 ─────────────────
+    // ── 新增模式草稿会话：恢复 → 自动保存（返回即存） → 横幅可丢弃 ────
     // 编辑已有账单不进草稿（原账单数据在库里，放弃修改即回原值）
-    var showExitDialog by remember { mutableStateOf(false) }
     var showDraftBanner by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
     // 恢复完成前拦截自动保存，避免进入页面瞬间空表单把磁盘草稿覆盖为空
     var draftRestoreDone by remember { mutableStateOf(editing != null) }
 
@@ -335,10 +335,6 @@ fun AddBillScreen(
         }
     }
 
-    // 有无待保存内容：决定退出时是否询问（分类/日期有默认值，不算内容）
-    fun hasDraftContent() = title.isNotBlank() || amountText.isNotBlank() || driver.text.isNotBlank() ||
-        plate.isNotBlank() || region.isNotBlank() || stagedPhotos.isNotEmpty()
-
     // ── 驾驶员记忆：输入联想 + 车牌联动 ──────────────────────────────
     val driverMemory = remember { mutableStateListOf<DriverStore.DriverEntry>() }
     LaunchedEffect(Unit) {
@@ -375,9 +371,27 @@ fun AddBillScreen(
         driverSuggestionsHidden = true
     }
 
+    // 返回即自动保存草稿（不再询问；恢复横幅的「丢弃」有二次确认）
     fun requestExit() {
-        if (editing == null && hasDraftContent()) {
-            showExitDialog = true
+        if (editing == null) {
+            // 点击时就地快照（异步保存前列表可能被 onDispose 清空）
+            val draft = BillDraftStore.Draft(
+                category = category,
+                dateIso = selectedDate.toString(),
+                driver = driver.text,
+                plate = plate,
+                region = region,
+                title = title,
+                amountText = amountText,
+                photos = stagedPhotos.map { it.name }
+            )
+            if (draft.isEmpty) {
+                discardStaged()
+                ioScope.launch { BillDraftStore.clear(context) }
+            } else {
+                ioScope.launch { BillDraftStore.save(context, draft) }
+            }
+            onBack()
         } else {
             discardStaged()
             onBack()
@@ -447,19 +461,7 @@ fun AddBillScreen(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable {
-                            stagedPhotos.forEach { BillPhotoStore.discard(it) }
-                            stagedPhotos.clear()
-                            title = ""
-                            amountText = ""
-                            driver = TextFieldValue("")
-                            plate = ""
-                            region = ""
-                            category = categoryOptions.firstOrNull().orEmpty()
-                            selectedDate = today
-                            showDraftBanner = false
-                            ioScope.launch { BillDraftStore.clear(context) }
-                        }
+                        modifier = Modifier.clickable { showDiscardDialog = true }
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -950,41 +952,31 @@ fun AddBillScreen(
         )
     }
 
-    // 退出询问（新增模式且已输入内容时触发）：保存草稿 / 不保存，
-    // 点弹窗以外区域 = 继续编辑
-    if (showExitDialog) {
+    // 丢弃草稿二次确认：内容与暂存照片一并删除，无法恢复
+    if (showDiscardDialog) {
         GlassCompactDialog(
-            onDismissRequest = { showExitDialog = false },
-            title = "保存草稿？",
+            onDismissRequest = { showDiscardDialog = false },
+            title = "丢弃草稿",
             text = {
-                Text("退出后已输入的内容将保存为草稿，下次添加账单时自动恢复。继续编辑请点击弹窗以外区域。")
+                Text("确定丢弃当前草稿吗？已输入的内容与暂存照片将一并删除，无法恢复。")
             },
             confirmButton = {
                 TextButton(onClick = {
-                    showExitDialog = false
-                    // 点击时就地快照（异步保存前列表可能被 onDispose 清空），
-                    // 强制立即落盘一次不等自动保存防抖；照片文件留磁盘、已登记
-                    val draft = BillDraftStore.Draft(
-                        category = category,
-                        dateIso = selectedDate.toString(),
-                        driver = driver.text,
-                        plate = plate,
-                        region = region,
-                        title = title,
-                        amountText = amountText,
-                        photos = stagedPhotos.map { it.name }
-                    )
-                    ioScope.launch { BillDraftStore.save(context, draft) }
-                    onBack()
-                }) { Text("保存草稿") }
+                    showDiscardDialog = false
+                    discardStaged()
+                    title = ""
+                    amountText = ""
+                    driver = TextFieldValue("")
+                    plate = ""
+                    region = ""
+                    category = categoryOptions.firstOrNull().orEmpty()
+                    selectedDate = today
+                    showDraftBanner = false
+                    ioScope.launch { BillDraftStore.clear(context) }
+                }) { Text("丢弃") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showExitDialog = false
-                    discardStaged()
-                    ioScope.launch { BillDraftStore.clear(context) }
-                    onBack()
-                }) { Text("不保存") }
+                TextButton(onClick = { showDiscardDialog = false }) { Text("取消") }
             }
         )
     }
