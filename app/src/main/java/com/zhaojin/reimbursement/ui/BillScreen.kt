@@ -41,6 +41,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -54,12 +56,16 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,8 +73,6 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.SelectableDates
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -80,7 +84,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -779,75 +782,184 @@ fun BillScreen(
     }
 
     // ── 导出：按日时间段选择 ─────────────────────────────────────────────
-    // 跳转日期选择器：只放行有账单的日期（其余置灰），确定后切锚点窗口；
-    // 年份列表截至今年、月份视图翻过当月立即弹回（M3 无原生最大日期限制）
+    // 跳转日期自绘选择器：年份下拉只含有账单的年份，月份限定在有账单月份
+    // （边界箭头自然置灰，未来月份不可见），日期只放行有账单的日子
     if (showJumpPicker) {
         val today = remember { LocalDate.now() }
-        val currentMonthStart = remember { today.withDayOfMonth(1) }
-        val jumpPickerState = rememberDatePickerState(
-            initialSelectedDateMillis = (jumpAnchor ?: today)
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toEpochMilli(),
-            initialDisplayedMonthMillis = (jumpAnchor ?: today)
-                .withDayOfMonth(1)
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toEpochMilli(),
-            yearRange = 2000..today.year,
-            selectableDates = object : SelectableDates {
-                // 无账单的日期不可选；null=集合未就绪时退回「不晚于今天」
-                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
-                    val day = Instant.ofEpochMilli(utcTimeMillis)
-                        .atZone(ZoneOffset.UTC).toLocalDate()
-                    if (day > today) return false
-                    val days = billDays ?: return true
-                    return days.contains(day.toEpochDay())
-                }
-
-                // 年视图同样置灰：整年无账单的年份不可选
-                override fun isSelectableYear(year: Int): Boolean {
-                    val days = billDays ?: return true
-                    return days.any {
-                        java.time.LocalDate.ofEpochDay(it).year == year
-                    }
-                }
-            }
-        )
-
-        // 月份视图禁看未来：显示月份越过当月就弹回（无账单的未来月份本就全灰）
-        LaunchedEffect(jumpPickerState) {
-            snapshotFlow { jumpPickerState.displayedMonthMillis }
-                .collect { millis ->
-                    val displayed = Instant.ofEpochMilli(millis)
-                        .atZone(ZoneOffset.UTC).toLocalDate().withDayOfMonth(1)
-                    if (displayed.isAfter(currentMonthStart)) {
-                        jumpPickerState.displayedMonthMillis = currentMonthStart
-                            .atStartOfDay(ZoneOffset.UTC)
-                            .toInstant()
-                            .toEpochMilli()
-                    }
-                }
+        val billDaySet = remember(billDays) { billDays.orEmpty() }
+        fun monthKeyOf(date: LocalDate) = date.year * 12 + date.monthValue - 1
+        val billMonthKeys = remember(billDaySet) {
+            billDaySet.map { monthKeyOf(LocalDate.ofEpochDay(it)) }.toSet()
         }
-        DatePickerDialog(
+        val minMonthKey = billMonthKeys.minOrNull() ?: monthKeyOf(today)
+        val maxMonthKey = billMonthKeys.maxOrNull() ?: monthKeyOf(today)
+        val billYears = remember(billDaySet) {
+            (billDaySet.map { LocalDate.ofEpochDay(it).year } + today.year).distinct().sorted()
+        }
+
+        // 初始视图：跳转锚点；无锚点（或锚点日无账单）落在最近有账单的月份
+        val latestBillDay = LocalDate.ofEpochDay(billDaySet.maxOrNull() ?: today.toEpochDay())
+        val initial = jumpAnchor?.takeIf { billDaySet.contains(it.toEpochDay()) } ?: latestBillDay
+        var viewYear by remember { mutableStateOf(initial.year) }
+        var viewMonth by remember { mutableStateOf(initial.monthValue) }
+        var pickedDay by remember {
+            mutableStateOf(jumpAnchor?.takeIf { billDaySet.contains(it.toEpochDay()) })
+        }
+
+        val viewMonthKey = monthKeyOf(LocalDate.of(viewYear, viewMonth, 1))
+        fun stepMonth(delta: Int) {
+            val key = (viewMonthKey + delta).coerceIn(minMonthKey, maxMonthKey)
+            viewYear = key / 12
+            viewMonth = key % 12 + 1
+        }
+
+        GlassCompactDialog(
             onDismissRequest = { showJumpPicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    jumpPickerState.selectedDateMillis?.let { millis ->
-                        viewModel.jumpToDate(
-                            Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        )
-                        pendingJumpScroll = true
+            title = "跳转到日期",
+            text = {
+                Column {
+                    // 年月导航行：上/下月箭头（边界置灰）+ 年月下拉
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { stepMonth(-1) },
+                            enabled = viewMonthKey > minMonthKey
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronLeft,
+                                contentDescription = "上一月",
+                                tint = if (viewMonthKey > minMonthKey) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            var yearMenu by remember { mutableStateOf(false) }
+                            TextButton(onClick = { yearMenu = true }) {
+                                Text(
+                                    text = "${viewYear}年${viewMonth}月",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }) {
+                                billYears.forEach { year ->
+                                    DropdownMenuItem(
+                                        text = { Text("${year}年") },
+                                        onClick = {
+                                            yearMenu = false
+                                            viewYear = year
+                                            // 该年第一个有账单的月份
+                                            val months = billMonthKeys
+                                                .filter { it / 12 == year }
+                                                .ifEmpty { listOf(monthKeyOf(today)) }
+                                            viewMonth = months.min() % 12 + 1
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = { stepMonth(1) },
+                            enabled = viewMonthKey < maxMonthKey
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "下一月",
+                                tint = if (viewMonthKey < maxMonthKey) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                            )
+                        }
                     }
-                    showJumpPicker = false
-                }) { Text("跳转") }
+
+                    // 星期头（周一起始）
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf("一", "二", "三", "四", "五", "六", "日").forEach { w ->
+                            Text(
+                                text = w,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // 日网格：有账单的日子可选（选中高亮），其余置灰不可点
+                    val firstOfMonth = LocalDate.of(viewYear, viewMonth, 1)
+                    val lead = firstOfMonth.dayOfWeek.value - 1 // 周一=0 个前置空位
+                    val cells: List<Int?> = List(lead) { null } +
+                        (1..firstOfMonth.lengthOfMonth()).map { it }
+                    cells.chunked(7).forEach { week ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            for (i in 0 until 7) {
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val day = week.getOrNull(i)
+                                    if (day != null) {
+                                        val date = LocalDate.of(viewYear, viewMonth, day)
+                                        val selectable = billDaySet.contains(date.toEpochDay())
+                                        val picked = pickedDay == date
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(vertical = 1.dp)
+                                                .size(34.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(
+                                                    if (picked) MaterialTheme.colorScheme.primary
+                                                    else Color.Transparent
+                                                )
+                                                .then(
+                                                    if (selectable) Modifier.clickable { pickedDay = date }
+                                                    else Modifier
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "$day",
+                                                fontSize = 14.sp,
+                                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                                                color = when {
+                                                    picked -> MaterialTheme.colorScheme.onPrimary
+                                                    selectable -> MaterialTheme.colorScheme.onSurface
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "灰色日期没有账单",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .align(Alignment.CenterHorizontally)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickedDay?.let { viewModel.jumpToDate(it) }
+                        pendingJumpScroll = true
+                        showJumpPicker = false
+                    },
+                    enabled = pickedDay != null
+                ) { Text("跳转") }
             },
             dismissButton = {
                 TextButton(onClick = { showJumpPicker = false }) { Text("取消") }
             }
-        ) {
-            DatePicker(state = jumpPickerState)
-        }
+        )
     }
 
     if (showExportDialog) {
