@@ -42,23 +42,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDefaults
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -89,6 +84,7 @@ import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.CategoryStore
 import com.zhaojin.reimbursement.data.DriverStore
 import com.zhaojin.reimbursement.data.RegionStore
+import com.zhaojin.reimbursement.ui.components.BillDatePickerDialog
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.utils.AppLogger
 import com.zhaojin.reimbursement.utils.BillDraftStore
@@ -879,52 +875,16 @@ fun AddBillScreen(
 
     // Date picker dialog
     if (showDatePicker) {
-        val todayMillis = remember {
-            LocalDate.now()
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toEpochMilli()
-        }
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = selectedDate
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toEpochMilli(),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
-                    return utcTimeMillis <= todayMillis
-                }
+        // 补记历史账单：不晚于今天的日期都可选
+        BillDatePickerDialog(
+            title = "选择日期",
+            initialDate = selectedDate,
+            onDismiss = { showDatePicker = false },
+            onConfirm = {
+                selectedDate = it
+                showDatePicker = false
             }
         )
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            modifier = Modifier.border(glassBorder(), RoundedCornerShape(28.dp)),
-            shape = RoundedCornerShape(28.dp),
-            colors = DatePickerDefaults.colors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(
-                    alpha = if (isDarkTheme()) 0.90f else 0.93f
-                )
-            ),
-            confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        selectedDate = Instant.ofEpochMilli(millis)
-                            .atZone(ZoneOffset.UTC)
-                            .toLocalDate()
-                    }
-                    showDatePicker = false
-                }) {
-                    Text("确定")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
-                    Text("取消")
-                }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
     }
 
     // 图片来源弹窗（拍照 / 相册多选；照片为可选项）
