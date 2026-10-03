@@ -447,7 +447,7 @@ fun BillScreen(
                             IconButton(onClick = {
                                 // 先取有账单的日期集合（选择器据此置灰空日期），再弹窗
                                 scope.launch {
-                                    billDays = viewModel.loadBillDaySet()
+                                    billDays = viewModel.loadBillDaySet(viewModel.selectedCategory.value)
                                     showJumpPicker = true
                                 }
                             }) {

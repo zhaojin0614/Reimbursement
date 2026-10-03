@@ -226,10 +226,11 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 有账单的日期集合（epochDay），打开跳转选择器前查询一次：
-     * 选择器据此把无账单的日期置灰不可选。
+     * 选择器据此把无账单的日期置灰不可选。跟随当前分类筛选——
+     * 与跳转后实际展示的列表（同样带分类过滤）口径一致。
      */
-    suspend fun loadBillDaySet(): Set<Long> =
-        billDao.getDistinctBillDates().mapNotNull {
+    suspend fun loadBillDaySet(category: String?): Set<Long> =
+        billDao.getDistinctBillDates(category).mapNotNull {
             runCatching { java.time.LocalDate.parse(it).toEpochDay() }.getOrNull()
         }.toSet()
 
