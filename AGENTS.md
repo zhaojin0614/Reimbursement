@@ -6,6 +6,12 @@
   （创建测试数据、触发系统分享面板、导出后肉眼核对 Excel、点按系统弹窗等），
   直接请用户操作并等其完成后再继续任务；不要长时间用 adb 反复模拟。
   用户（zhaojin0614）的明确要求。
+- **改完实装进手机**：每次代码修改验证通过后，若手机已连接
+  （`adb devices` 有 device），构建 `./gradlew :app:assembleDebug` 并
+  `adb install -r` 覆盖安装（adb 不在 PATH，位于
+  `D:\APPS\Android\SDK\platform-tools\adb.exe`；APK 产物在
+  `app/build/outputs/apk/debug/维修报销-v<版本>.apk`），装完拉起主界面
+  便于用户直接验证。用户（zhaojin0614）的明确要求。
 
 ## Git 提交
 
