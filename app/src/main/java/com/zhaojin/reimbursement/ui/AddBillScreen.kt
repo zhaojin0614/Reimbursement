@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
@@ -338,13 +341,23 @@ fun AddBillScreen(
     LaunchedEffect(Unit) {
         driverMemory.addAll(DriverStore.load(context))
     }
-    // 选定联想项后收起列表，再次输入时重新弹出
+    // 选定联想项后收起列表；再次输入或点击输入框时重新弹出
     var driverSuggestionsHidden by remember { mutableStateOf(false) }
+    var driverFocused by remember { mutableStateOf(false) }
+    val driverInteraction = remember { MutableInteractionSource() }
+    // 点击已聚焦的输入框也重新弹出（选定收起后，再点一次可重新选择）
+    LaunchedEffect(driverInteraction) {
+        driverInteraction.interactions.collect { interaction ->
+            if (interaction is PressInteraction.Press) driverSuggestionsHidden = false
+        }
+    }
 
-    // 联想候选：包含匹配（不区分大小写），沿用记忆库顺序（最近使用在前）
+    // 联想候选：包含匹配（不区分大小写）；未输入时聚焦即列出全部，
+    // 沿用记忆库顺序（最近使用在前）
     val driverQuery = driver.trim()
-    val driverSuggestions = if (driverQuery.isEmpty()) emptyList() else
-        driverMemory.filter { it.name.contains(driverQuery, true) }
+    val driverSuggestions = driverMemory.filter {
+        driverQuery.isEmpty() || it.name.contains(driverQuery, true)
+    }
 
     // 点选联想项：带出姓名；当前车牌为空或不是该驾驶员已记录的车牌时，
     // 自动填入其最近使用的车牌（已输入的合法组合不动，保存后会记入列表）
@@ -538,7 +551,7 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 2 行：驾驶员（输入时联想记忆库，点选自动带出车牌）
+            // 第 2 行：驾驶员（聚焦即弹联想列表，输入实时过滤，点选自动带出车牌）
             TextField(
                 value = driver,
                 colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
@@ -548,23 +561,30 @@ fun AddBillScreen(
                 },
                 label = { Text("驾驶员") },
                 textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Bold),
+                interactionSource = driverInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onFocusEvent { if (it.isFocused) focusedField = ImeField.Driver }
+                    .onFocusEvent {
+                        driverFocused = it.isFocused
+                        if (it.isFocused) focusedField = ImeField.Driver
+                    }
                     .bringIntoViewRequester(fieldRequesters.getValue(ImeField.Driver)),
                 singleLine = true
             )
 
-            // 驾驶员联想列表：点选联动车牌，右侧预览将填入的最近车牌
-            if (!driverSuggestionsHidden && driverSuggestions.isNotEmpty()) {
+            // 驾驶员联想列表：高度受限，超出部分在框内滑动；点选联动车牌，
+            // 右侧预览将填入的最近车牌
+            if (driverFocused && !driverSuggestionsHidden && driverSuggestions.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                         .border(glassBorder(), RoundedCornerShape(12.dp))
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    driverSuggestions.take(5).forEach { entry ->
+                    driverSuggestions.forEach { entry ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -587,14 +607,6 @@ fun AddBillScreen(
                                 )
                             }
                         }
-                    }
-                    if (driverSuggestions.size > 5) {
-                        Text(
-                            text = "还有 ${driverSuggestions.size - 5} 位，继续输入可缩小范围",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
                     }
                 }
             }
