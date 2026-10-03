@@ -1,6 +1,7 @@
 package com.zhaojin.reimbursement.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,7 +35,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -269,11 +272,36 @@ fun BillDatePickerDialog(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // 日网格：可选日期正常色可点，其余置灰不可点，选中高亮
+                // 日网格：可选日期正常色可点，其余置灰不可点，选中高亮；
+                // 支持左右滑动切换上一月/下一月（与箭头一致，到边界不响应）
                 val firstOfMonth = LocalDate.of(viewYear, viewMonth, 1)
                 val lead = firstOfMonth.dayOfWeek.value - 1 // 周一=0 个前置空位
                 val cells: List<Int?> = List(lead) { null } +
                     (1..firstOfMonth.lengthOfMonth()).map { it }
+                val swipeThreshold = with(LocalDensity.current) { 80.dp.toPx() }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerInput(minMonthKey, maxMonthKey, viewMonthKey) {
+                            var acc = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { acc = 0f },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    acc += dragAmount
+                                    val key = monthKeyOf(LocalDate.of(viewYear, viewMonth, 1))
+                                    when {
+                                        acc <= -swipeThreshold && key < maxMonthKey -> {
+                                            stepMonth(1); acc = 0f
+                                        }
+                                        acc >= swipeThreshold && key > minMonthKey -> {
+                                            stepMonth(-1); acc = 0f
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                ) {
                 cells.chunked(7).forEach { week ->
                     Row(modifier = Modifier.fillMaxWidth()) {
                         for (i in 0 until 7) {
@@ -316,6 +344,7 @@ fun BillDatePickerDialog(
                             }
                         }
                     }
+                }
                 }
 
                 if (selectableDays != null) {
