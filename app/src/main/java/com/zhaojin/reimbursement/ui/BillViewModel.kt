@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -158,6 +159,10 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val _newerLimit = MutableStateFlow(PAGE_SIZE)
     private val _olderLimit = MutableStateFlow(PAGE_SIZE)
 
+    /** 当前 bills 是否已是对应锚点/筛选的最新查询结果（跳转定位须等它为 true） */
+    private val _windowReady = MutableStateFlow(false)
+    val windowReady: StateFlow<Boolean> = _windowReady.asStateFlow()
+
     /**
      * 记账页账单列表，三种模式（优先级从高到低）：
      * 1. 搜索：关键词命中各字段，条数分页；
@@ -175,6 +180,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             // 搜索优先：关键词命中各字段
             q.query.isNotBlank() ->
                 billDao.searchBills(q.query.trim(), null, q.category, q.limit)
+                    .onEach { _windowReady.value = false }
             anchor != null -> {
                 val zone = java.time.ZoneId.systemDefault()
                 val dayStart = anchor.atStartOfDay(zone).toInstant().toEpochMilli()
@@ -183,8 +189,10 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     billDao.getBillsNewerThan(dayEnd, q.category, jump.newerLimit),
                     billDao.getBillsAtOrBefore(dayStart, q.category, jump.olderLimit)
                 ) { newer, older -> newer.asReversed() + older }
+                    .onEach { _windowReady.value = true }
             }
             else -> billDao.getBillsFiltered(null, q.category, q.limit)
+                .onEach { _windowReady.value = false }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -194,6 +202,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         _newerLimit.value = PAGE_SIZE
         _olderLimit.value = PAGE_SIZE
         _limit.value = PAGE_SIZE
+        // 旧列表不是目标窗口：先置 false，定位等新窗口到达（windowReady=true）再执行
+        _windowReady.value = false
     }
 
     /** 回到最新：清除跳转锚点，恢复最新一页起的默认浏览 */

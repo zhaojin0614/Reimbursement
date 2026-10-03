@@ -162,6 +162,7 @@ fun BillScreen(
 
     // 跳转到指定日期：锚点窗口模式（查那天附近两页，滚动两端按需扩页）
     val jumpAnchor by viewModel.jumpAnchor.collectAsState()
+    val windowReady by viewModel.windowReady.collectAsState()
     var showJumpPicker by remember { mutableStateOf(false) }
     // 跳转后首次窗口就绪时定位一次（防扩页导致的 size 变化反复拉回锚点）
     var pendingJumpScroll by remember { mutableStateOf(false) }
@@ -685,8 +686,9 @@ fun BillScreen(
                     // 目标当天有账单 → 静默定位；当天没有 → 定位到最近的账单日
                     // 并提示；目标比最新/最早记录还远 → 回到窗口顶（最新页顶/
                     // 最早一批账单）并说明
-                    LaunchedEffect(jumpAnchor, pendingJumpScroll, bills.size) {
-                        if (!pendingJumpScroll || bills.isEmpty()) return@LaunchedEffect
+                    LaunchedEffect(jumpAnchor, pendingJumpScroll, windowReady, bills.size) {
+                        // 窗口未就绪时 bills 还是旧数据（如最新一页），定位必错，等待下一次触发
+                        if (!pendingJumpScroll || bills.isEmpty() || !windowReady) return@LaunchedEffect
                         val target = jumpAnchor ?: run {
                             pendingJumpScroll = false
                             return@LaunchedEffect
