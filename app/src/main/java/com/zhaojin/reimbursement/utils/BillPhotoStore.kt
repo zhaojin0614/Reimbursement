@@ -106,9 +106,14 @@ object BillPhotoStore {
         thumbnailCache.evictAll()
     }
 
-    /** 冷启动清扫：删除拍照中断遗留的 pending 临时文件 */
-    fun sweepPending(context: Context) {
-        photoDir(context).listFiles { f -> f.name.startsWith(PENDING_PREFIX) }?.forEach { it.delete() }
+    /**
+     * 冷启动清扫：删除拍照中断遗留的 pending 临时文件。
+     * [keep] 里的文件名除外——草稿（[BillDraftStore]）登记的照片还在等账单转正。
+     */
+    fun sweepPending(context: Context, keep: Set<String> = emptySet()) {
+        photoDir(context).listFiles {
+            f -> f.name.startsWith(PENDING_PREFIX) && f.name !in keep
+        }?.forEach { it.delete() }
     }
 
     /**

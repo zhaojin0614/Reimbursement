@@ -57,6 +57,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.getValue
@@ -83,10 +84,13 @@ import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.CategoryStore
 import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
+import com.zhaojin.reimbursement.utils.AppLogger
+import com.zhaojin.reimbursement.utils.BillDraftStore
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import com.zhaojin.reimbursement.ui.components.SoftButton
@@ -170,8 +174,11 @@ fun AddBillScreen(
     var plate by remember { mutableStateOf(editing?.plate.orEmpty()) }
     var region by remember { mutableStateOf(editing?.region.orEmpty()) }
     var showPlateBoard by remember { mutableStateOf(false) }
-    // 暂存照片（pending 文件，保存账单时统一转正压缩入库；可选）
-    val stagedPhotos = remember { mutableStateListOf<File>() }
+    // 暂存照片（pending 文件，保存账单时统一转正压缩入库；可选）。
+    // 新增模式与 BillDraftStore 共享运行时列表——分享接收页把图片挂进草稿时
+    // 直接进这里，页面立即可见；编辑已有账单不进草稿，仍用局部列表。
+    val editStaged = remember { mutableStateListOf<File>() }
+    val stagedPhotos = if (editing == null) BillDraftStore.stagedPhotos else editStaged
     var showPhotoSourceDialog by remember { mutableStateOf(false) }
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
     val today = remember { LocalDate.now() }
@@ -257,10 +264,83 @@ fun AddBillScreen(
         pendingCaptureFile?.let { BillPhotoStore.discard(it) }
     }
 
-    BackHandler(enabled = true) {
-        discardStaged()
-        onBack()
+    // ── 新增模式草稿会话：恢复 → 自动保存 → 退出询问 ─────────────────
+    // 编辑已有账单不进草稿（原账单数据在库里，放弃修改即回原值）
+    var showExitDialog by remember { mutableStateOf(false) }
+    var showDraftBanner by remember { mutableStateOf(false) }
+    // 恢复完成前拦截自动保存，避免进入页面瞬间空表单把磁盘草稿覆盖为空
+    var draftRestoreDone by remember { mutableStateOf(editing != null) }
+
+    if (editing == null) {
+        // 会话注册：分享接收页据此把照片送进运行时列表；退出时注销并清引用
+        // （文件所有权已在各退出路径显式闭环：保存=移交入库、放弃=discard、
+        // 存草稿=文件留磁盘且登记在草稿里）
+        DisposableEffect(Unit) {
+            BillDraftStore.setSession(true)
+            onDispose { BillDraftStore.setSession(false) }
+        }
+        // 进入页面恢复草稿：照片文件仍在磁盘 pending 态，重新挂回列表
+        LaunchedEffect(Unit) {
+            val draft = BillDraftStore.load(context) ?: run {
+                draftRestoreDone = true
+                return@LaunchedEffect
+            }
+            showDraftBanner = true
+            title = draft.title
+            amountText = draft.amountText
+            driver = draft.driver
+            plate = draft.plate
+            region = draft.region.takeIf { it.isNotBlank() && it in regionOptions } ?: ""
+            category = draft.category.takeIf { it.isNotBlank() && it in categoryOptions } ?: category
+            draft.dateIso.takeIf { it.isNotBlank() }?.let { iso ->
+                runCatching { LocalDate.parse(iso) }.getOrNull()?.let { selectedDate = it }
+            }
+            val dir = BillPhotoStore.photoDir(context)
+            draft.photos.forEach { name ->
+                File(dir, name).takeIf { it.exists() }?.let { stagedPhotos.add(it) }
+            }
+            AppLogger.log(
+                "账单",
+                "恢复草稿 内容=「${draft.title}」 金额=${draft.amountText} 照片=${stagedPhotos.size}/${draft.photos.size}"
+            )
+            draftRestoreDone = true
+        }
+        // 自动保存：任一字段/照片变化后 500ms 落盘（effect 重启即防抖），
+        // 进程被杀也不丢输入；表单清空则连草稿文件一并删除
+        LaunchedEffect(
+            draftRestoreDone, category, selectedDate, driver, plate, region, title, amountText,
+            stagedPhotos.joinToString("|") { it.name }
+        ) {
+            if (!draftRestoreDone) return@LaunchedEffect
+            delay(500)
+            val snapshot = BillDraftStore.Draft(
+                category = category,
+                dateIso = selectedDate.toString(),
+                driver = driver,
+                plate = plate,
+                region = region,
+                title = title,
+                amountText = amountText,
+                photos = stagedPhotos.map { it.name }
+            )
+            if (snapshot.isEmpty) BillDraftStore.clear(context) else BillDraftStore.save(context, snapshot)
+        }
     }
+
+    // 有无待保存内容：决定退出时是否询问（分类/日期有默认值，不算内容）
+    fun hasDraftContent() = title.isNotBlank() || amountText.isNotBlank() || driver.isNotBlank() ||
+        plate.isNotBlank() || region.isNotBlank() || stagedPhotos.isNotEmpty()
+
+    fun requestExit() {
+        if (editing == null && hasDraftContent()) {
+            showExitDialog = true
+        } else {
+            discardStaged()
+            onBack()
+        }
+    }
+
+    BackHandler(enabled = true) { requestExit() }
 
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -276,7 +356,7 @@ fun AddBillScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { requestExit() }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
@@ -301,6 +381,45 @@ fun AddBillScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(4.dp))
+
+            // 草稿恢复横幅：提示内容来源，可一键丢弃回到全新表单
+            if (showDraftBanner) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "已恢复上次未保存的草稿",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "丢弃",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            stagedPhotos.forEach { BillPhotoStore.discard(it) }
+                            stagedPhotos.clear()
+                            title = ""
+                            amountText = ""
+                            driver = ""
+                            plate = ""
+                            region = ""
+                            category = categoryOptions.firstOrNull().orEmpty()
+                            selectedDate = today
+                            showDraftBanner = false
+                            ioScope.launch { BillDraftStore.clear(context) }
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
 
             // 第 1 行：分类（点选标签；选项列表在设置界面维护，导出 Excel 按分类分表）
             Row(
@@ -565,6 +684,11 @@ fun AddBillScreen(
                             .toInstant()
                             .toEpochMilli()
                     }
+                    // 文件随快照移交入库流程（异步 commitPending）；新增模式
+                    // 草稿使命完成，运行时列表与草稿文件一并清掉
+                    val photosToSave = stagedPhotos.toList()
+                    stagedPhotos.clear()
+                    if (editing == null) ioScope.launch { BillDraftStore.clear(context) }
                     onSave(
                         BillEntity(
                             id = editing?.id ?: 0,
@@ -577,7 +701,7 @@ fun AddBillScreen(
                             isIncome = false,
                             timestamp = ts
                         ),
-                        stagedPhotos.toList(),
+                        photosToSave,
                         removedExisting.toList()
                     )
                 },
@@ -688,6 +812,45 @@ fun AddBillScreen(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 }) { Text("从相册选择") }
+            }
+        )
+    }
+
+    // 退出询问（新增模式且已输入内容时触发）：保存草稿 / 不保存，
+    // 点弹窗以外区域 = 继续编辑
+    if (showExitDialog) {
+        GlassCompactDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = "保存草稿？",
+            text = {
+                Text("退出后已输入的内容将保存为草稿，下次添加账单时自动恢复。继续编辑请点击弹窗以外区域。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExitDialog = false
+                    // 点击时就地快照（异步保存前列表可能被 onDispose 清空），
+                    // 强制立即落盘一次不等自动保存防抖；照片文件留磁盘、已登记
+                    val draft = BillDraftStore.Draft(
+                        category = category,
+                        dateIso = selectedDate.toString(),
+                        driver = driver,
+                        plate = plate,
+                        region = region,
+                        title = title,
+                        amountText = amountText,
+                        photos = stagedPhotos.map { it.name }
+                    )
+                    ioScope.launch { BillDraftStore.save(context, draft) }
+                    onBack()
+                }) { Text("保存草稿") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showExitDialog = false
+                    discardStaged()
+                    ioScope.launch { BillDraftStore.clear(context) }
+                    onBack()
+                }) { Text("不保存") }
             }
         )
     }

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +57,7 @@ import com.zhaojin.reimbursement.data.BillPhotoEntity
 import com.zhaojin.reimbursement.ui.components.SoftButton
 import com.zhaojin.reimbursement.ui.theme.ReimbursementTheme
 import com.zhaojin.reimbursement.utils.AppLogger
+import com.zhaojin.reimbursement.utils.BillDraftStore
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -121,15 +123,22 @@ class ShareReceiveActivity : ComponentActivity() {
                 }
                 return@launch
             }
-            AppLogger.log("图片", "分享接收 ${staged.size} 张图片（失败 $stageError 张），等待选择账单")
+            AppLogger.log("图片", "分享接收 ${staged.size} 张图片（失败 $stageError 张），等待选择去向")
             val bills = AppDatabase.getDatabase(applicationContext).billDao().getRecentBillsOnce(50)
-            runOnUiThread { setContent { ShareReceiveScreen(bills, staged) } }
+            // 添加页未保存的草稿：存在即可作为图片去向（挂进草稿，回添加页继续）
+            val draft = BillDraftStore.load(applicationContext)
+            runOnUiThread { setContent { ShareReceiveScreen(bills, staged, draft) } }
         }
     }
 
     @Composable
-    private fun ShareReceiveScreen(bills: List<BillEntity>, staged: List<File>) {
+    private fun ShareReceiveScreen(
+        bills: List<BillEntity>,
+        staged: List<File>,
+        draft: BillDraftStore.Draft?
+    ) {
         var selectedId by remember { mutableStateOf<Long?>(null) }
+        var selectedDraft by remember { mutableStateOf(false) }
         var search by remember { mutableStateOf("") }
         var busy by remember { mutableStateOf(false) }
         val context = this
@@ -226,7 +235,7 @@ class ShareReceiveActivity : ComponentActivity() {
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (bills.isEmpty()) {
+                    if (bills.isEmpty() && draft == null) {
                         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                             Text(
                                 text = "还没有账单，请先在应用中记一笔",
@@ -235,7 +244,8 @@ class ShareReceiveActivity : ComponentActivity() {
                             )
                         }
                     } else {
-                        // 账单选择列表（最近优先 + 本地过滤）
+                        // 去向列表：草稿固定首位（不受搜索过滤，本就属于当前这次添加），
+                        // 账单按最近优先 + 本地过滤
                         val keyword = search.trim()
                         val filtered = if (keyword.isEmpty()) bills else bills.filter { b ->
                             b.title.contains(keyword, true) || b.driver.contains(keyword, true) ||
@@ -246,6 +256,66 @@ class ShareReceiveActivity : ComponentActivity() {
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            if (draft != null) {
+                                item(key = "draft") {
+                                    val selected = selectedDraft
+                                    val summary = buildList {
+                                        add(draft.title.ifBlank { "内容未填" })
+                                        val amt = draft.amountText.toDoubleOrNull()
+                                        add(if (amt != null) "¥" + String.format("%.2f", amt) else "金额未填")
+                                        if (draft.photos.isNotEmpty()) add("已挂${draft.photos.size}张图")
+                                    }.joinToString(" · ")
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(
+                                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                            )
+                                            .border(
+                                                if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                                else androidx.compose.foundation.BorderStroke(1.dp, Color.Transparent),
+                                                RoundedCornerShape(12.dp)
+                                            )
+                                            .clickable {
+                                                selectedDraft = true
+                                                selectedId = null
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "未保存的草稿",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = summary,
+                                                color = Color.White.copy(alpha = 0.55f),
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.Default.Edit, contentDescription = "草稿",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        if (selected) {
+                                            Icon(
+                                                Icons.Default.Check, contentDescription = "已选",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             items(filtered, key = { it.id }) { bill ->
                                 val selected = selectedId == bill.id
                                 Row(
@@ -261,7 +331,10 @@ class ShareReceiveActivity : ComponentActivity() {
                                             else androidx.compose.foundation.BorderStroke(1.dp, Color.Transparent),
                                             RoundedCornerShape(12.dp)
                                         )
-                                        .clickable { selectedId = bill.id }
+                                        .clickable {
+                                            selectedId = bill.id
+                                            selectedDraft = false
+                                        }
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -302,43 +375,68 @@ class ShareReceiveActivity : ComponentActivity() {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // 确认入库
+                    // 确认入库：挂已有账单 → 照片直接写库；挂草稿 → 追加进草稿，
+                    // 回添加页继续编辑
                     SoftButton(
-                        text = if (busy) "正在添加…" else "添加到该账单",
+                        text = if (busy) "正在添加…" else if (selectedDraft) "添加到草稿" else "添加到该账单",
                         onClick = {
-                            val billId = selectedId ?: return@SoftButton
                             if (busy) return@SoftButton
-                            busy = true
-                            val bill = bills.firstOrNull { it.id == billId }
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                val photoDao = AppDatabase.getDatabase(applicationContext).billPhotoDao()
-                                var ok = 0
-                                staged.forEach { file ->
-                                    BillPhotoStore.commitPending(applicationContext, file)?.let { name ->
-                                        photoDao.insert(
-                                            BillPhotoEntity(
-                                                billId = billId, fileName = name,
-                                                createdAt = System.currentTimeMillis()
-                                            )
+                            if (selectedDraft) {
+                                busy = true
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    BillDraftStore.attachPhotos(applicationContext, staged)
+                                    runOnUiThread {
+                                        Toast.makeText(
+                                            this@ShareReceiveActivity,
+                                            "已添加 ${staged.size} 张图片到草稿",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        // 分享页在独立 task；把主界面拉回前台，照片已挂上，直接继续编辑
+                                        startActivity(
+                                            Intent(this@ShareReceiveActivity, MainActivity::class.java).apply {
+                                                addFlags(
+                                                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                                                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                                                )
+                                            }
                                         )
-                                        ok++
-                                    } ?: BillPhotoStore.discard(file)
+                                        finish()
+                                    }
                                 }
-                                AppLogger.log(
-                                    "图片",
-                                    "分享接收入库 账单#$billId「${bill?.title}」 成功=$ok/${staged.size}张"
-                                )
-                                runOnUiThread {
-                                    Toast.makeText(
-                                        this@ShareReceiveActivity,
-                                        "已添加 $ok 张图片到「${bill?.title ?: "账单"}」",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                    finish()
+                            } else {
+                                val billId = selectedId ?: return@SoftButton
+                                busy = true
+                                val bill = bills.firstOrNull { it.id == billId }
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    val photoDao = AppDatabase.getDatabase(applicationContext).billPhotoDao()
+                                    var ok = 0
+                                    staged.forEach { file ->
+                                        BillPhotoStore.commitPending(applicationContext, file)?.let { name ->
+                                            photoDao.insert(
+                                                BillPhotoEntity(
+                                                    billId = billId, fileName = name,
+                                                    createdAt = System.currentTimeMillis()
+                                                )
+                                            )
+                                            ok++
+                                        } ?: BillPhotoStore.discard(file)
+                                    }
+                                    AppLogger.log(
+                                        "图片",
+                                        "分享接收入库 账单#$billId「${bill?.title}」 成功=$ok/${staged.size}张"
+                                    )
+                                    runOnUiThread {
+                                        Toast.makeText(
+                                            this@ShareReceiveActivity,
+                                            "已添加 $ok 张图片到「${bill?.title ?: "账单"}」",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        finish()
+                                    }
                                 }
                             }
                         },
-                        enabled = selectedId != null && !busy
+                        enabled = (selectedDraft || selectedId != null) && !busy
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
