@@ -41,7 +41,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -504,15 +503,14 @@ fun BillScreen(
                         horizontalAlignment = Alignment.End
                     ) {
                         // 返回顶部：滚过 5 项后滑入；跳转锚点模式常驻，
-                        // 点击清除锚点回到最新
+                        // 点击清除锚点回到最新（图标统一为置顶对齐样式）
                         AnimatedVisibility(
                             visible = showScrollToTop || jumpAnchor != null,
                             enter = fadeIn() + slideInVertically { it },
                             exit = fadeOut() + slideOutVertically { it }
                         ) {
                             SoftFab(
-                                icon = if (jumpAnchor != null) Icons.Default.VerticalAlignTop
-                                else Icons.Default.ArrowUpward,
+                                icon = Icons.Default.VerticalAlignTop,
                                 contentDescription = if (jumpAnchor != null) "回到最新"
                                 else stringResource(R.string.scroll_to_top),
                                 onClick = {
