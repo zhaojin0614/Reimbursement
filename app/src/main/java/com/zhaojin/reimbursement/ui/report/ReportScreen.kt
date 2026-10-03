@@ -52,6 +52,7 @@ import kotlin.math.ceil
 import kotlin.math.sqrt
 
 import com.zhaojin.reimbursement.ui.components.BillDatePickerDialog
+import com.zhaojin.reimbursement.ui.theme.categoryColor
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.PillToggle
 import com.zhaojin.reimbursement.ui.components.SoftCard
@@ -1102,11 +1103,6 @@ private fun EmptyChartState(message: String) {
     }
 }
 
-/** 分类构成饼图配色（按序循环取色） */
-private val CategoryPieColors = listOf(
-    Color(0xFF5B8DEF), Color(0xFF66BB6A), Color(0xFFFFA726), Color(0xFFAB47BC),
-    Color(0xFFEF5350), Color(0xFF26C6DA), Color(0xFFEC407A), Color(0xFF8D6E63)
-)
 
 /**
  * 分类构成：环形饼图 + 图例（占比/金额），点击扇区或图例行查看该分类
@@ -1167,7 +1163,7 @@ private fun CategoryBreakdownCard(
                     shares.forEachIndexed { i, share ->
                         val sweep = (share.amount / total * 360.0).toFloat().coerceAtLeast(0.01f)
                         drawArc(
-                            color = CategoryPieColors[i % CategoryPieColors.size],
+                            color = categoryColor(share.name),
                             startAngle = start,
                             sweepAngle = sweep,
                             useCenter = false,
@@ -1208,7 +1204,7 @@ private fun CategoryBreakdownCard(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(CategoryPieColors[i % CategoryPieColors.size])
+                            .background(categoryColor(share.name))
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
