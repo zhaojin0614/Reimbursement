@@ -166,6 +166,9 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         _limit.value += PAGE_SIZE
     }
 
+    /** 已加载数达到当前 LIMIT 上限时可能还有更多（跳转日期扩载用） */
+    fun canLoadMore(): Boolean = bills.value.size >= _limit.value
+
     val totalExpense: StateFlow<Double> = _selectedCategory.flatMapLatest { category ->
         billDao.getTotalExpense(category).map { it ?: 0.0 }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)

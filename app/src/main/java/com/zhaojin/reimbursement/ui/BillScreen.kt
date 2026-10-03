@@ -164,6 +164,10 @@ fun BillScreen(
     var showSearch by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
 
+    // 跳转到指定日期：非空时由列表处的 LaunchedEffect 定位（必要时逐页扩载）
+    var jumpTargetDate by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    var showJumpPicker by remember { mutableStateOf(false) }
+
     // ── 账单图片（多张）：拍照 / 相册 / 查看器状态 ──────────────────────
     // 无图图标点击 → sourcePickerFor（选择来源）；有图图标点击 → viewerBill
     // sourcePickerFor = (billId, title)，查看器内「添加图片」复用同一弹窗
@@ -439,6 +443,13 @@ fun BillScreen(
                                 )
                             }
                         } else {
+                            IconButton(onClick = { showJumpPicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = "跳转到日期",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             IconButton(
                                 onClick = { if (!backupBusy) openExportDialog() },
                                 enabled = !backupBusy
@@ -655,6 +666,37 @@ fun BillScreen(
                             )
                         }
                     }
+
+                    // 跳转日期定位：目标日在已加载分页内直接跳；更早则逐页扩载
+                    // （bills.size 变化重新触发本 effect），直到找到或确认到底；
+                    // 比最新记录还新的日期回到顶部并提示
+                    LaunchedEffect(jumpTargetDate, bills.size) {
+                        val target = jumpTargetDate ?: return@LaunchedEffect
+                        val newest = groupedBills.first().first
+                        val oldest = groupedBills.last().first
+                        when {
+                            target > newest -> {
+                                listState.scrollToItem(0)
+                                Toast.makeText(
+                                    context, "$target 尚无账单，已回到最新", Toast.LENGTH_SHORT
+                                ).show()
+                                jumpTargetDate = null
+                            }
+                            target < oldest && viewModel.canLoadMore() -> viewModel.loadMore()
+                            else -> {
+                                val idx = groupedBills.indexOfFirst { it.first == target }
+                                if (idx >= 0) {
+                                    listState.scrollToItem(idx)
+                                } else {
+                                    listState.scrollToItem(groupedBills.lastIndex)
+                                    Toast.makeText(
+                                        context, "没有更早的账单，已跳到最早记录 $oldest", Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                jumpTargetDate = null
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -699,6 +741,41 @@ fun BillScreen(
     }
 
     // ── 导出：按日时间段选择 ─────────────────────────────────────────────
+    // 跳转日期选择器（不可选未来；确定后由列表处的定位 effect 接管）
+    if (showJumpPicker) {
+        val todayMillis = remember {
+            LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+        val jumpPickerState = rememberDatePickerState(
+            initialSelectedDateMillis = (jumpTargetDate ?: LocalDate.now())
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+                .toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    utcTimeMillis <= todayMillis
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showJumpPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    jumpPickerState.selectedDateMillis?.let { millis ->
+                        jumpTargetDate = Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC)
+                            .toLocalDate()
+                    }
+                    showJumpPicker = false
+                }) { Text("跳转") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJumpPicker = false }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = jumpPickerState)
+        }
+    }
+
     if (showExportDialog) {
         val dateFmt = remember { java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd") }
         GlassCompactDialog(
