@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -69,12 +70,13 @@ fun BillDatePickerDialog(
         val keys = selectableDays.map { monthKeyOf(LocalDate.ofEpochDay(it)) }.toSet()
         minMonthKey = keys.minOrNull() ?: monthKeyOf(today)
         maxMonthKey = keys.maxOrNull() ?: monthKeyOf(today)
-        years = (selectableDays.map { LocalDate.ofEpochDay(it).year } + today.year)
-            .distinct().sorted()
+        // 倒序：今年在最上；集合模式只列有可选日期的年份
+        years = selectableDays.map { LocalDate.ofEpochDay(it).year }.distinct()
+            .sortedDescending()
     } else {
         minMonthKey = monthKeyOf(LocalDate.of(MIN_YEAR, 1, 1))
         maxMonthKey = monthKeyOf(maxDate)
-        years = (MIN_YEAR..maxDate.year).toList()
+        years = (maxDate.year downTo MIN_YEAR).toList()
     }
 
     fun isSelectable(date: LocalDate) =
@@ -128,10 +130,15 @@ fun BillDatePickerDialog(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }) {
+                        DropdownMenu(
+                            expanded = yearMenu,
+                            onDismissRequest = { yearMenu = false },
+                            modifier = Modifier.heightIn(max = 300.dp)
+                        ) {
                             years.forEach { year ->
                                 DropdownMenuItem(
                                     text = { Text("${year}年") },
+                                    modifier = Modifier.height(38.dp),
                                     onClick = {
                                         yearMenu = false
                                         viewYear = year
