@@ -52,12 +52,17 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC")
     suspend fun getBillsBetween(start: Long, end: Long): List<BillEntity>
 
-    /** 关键词搜索：标题模糊匹配 + 金额文本匹配，带类型过滤；排序同列表（日倒序+添加顺序） */    @Query(
+    /** 关键词搜索：内容/金额/驾驶员/车牌号/地区/分类 模糊匹配，带类型过滤；排序同列表（日倒序+添加顺序） */
+    @Query(
         """
         SELECT * FROM bills
         WHERE (
             title LIKE '%' || :query || '%'
             OR CAST(amount AS TEXT) LIKE '%' || :query || '%'
+            OR driver LIKE '%' || :query || '%'
+            OR plate LIKE '%' || :query || '%'
+            OR region LIKE '%' || :query || '%'
+            OR category LIKE '%' || :query || '%'
         )
         AND (:type IS NULL OR isIncome = :type)
         AND (:category IS NULL OR category = :category)
