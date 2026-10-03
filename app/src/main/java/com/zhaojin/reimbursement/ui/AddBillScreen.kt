@@ -98,6 +98,8 @@ import kotlinx.coroutines.launch
 import com.zhaojin.reimbursement.ui.components.SoftButton
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.isDarkTheme
+import com.zhaojin.reimbursement.ui.theme.categoryColor
+import com.zhaojin.reimbursement.ui.theme.categoryTextColor
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -484,11 +486,13 @@ fun AddBillScreen(
                 ) {
                     categoryOptions.forEach { option ->
                         val selected = option == category
+                        // 选中分类用该分类自己的颜色（与账单卡片角标同色系）
+                        val catColor = categoryTextColor(option, isDarkTheme())
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(
-                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    if (selected) categoryColor(option).copy(alpha = 0.18f)
                                     else MaterialTheme.colorScheme.surface
                                 )
                                 .border(glassBorder(), RoundedCornerShape(8.dp))
@@ -499,7 +503,7 @@ fun AddBillScreen(
                                 text = option,
                                 fontSize = 13.sp,
                                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                                color = if (selected) MaterialTheme.colorScheme.primary
+                                color = if (selected) catColor
                                 else MaterialTheme.colorScheme.onSurface
                             )
                         }

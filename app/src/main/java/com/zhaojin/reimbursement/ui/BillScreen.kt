@@ -98,6 +98,7 @@ import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.BillPhotoEntity
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.BillDatePickerDialog
+import com.zhaojin.reimbursement.ui.theme.categoryColor
 import com.zhaojin.reimbursement.ui.components.SoftCard
 import com.zhaojin.reimbursement.ui.components.SoftFab
 import com.zhaojin.reimbursement.ui.components.SoftGradientCard
@@ -1244,11 +1245,14 @@ private fun CategoryFilterBar(
         val items: List<String?> = listOf<String?>(null) + options
         items.forEach { option ->
             val isSelected = option == selected || (option == null && selected == null)
+            // 选中分类用该分类自己的颜色实底（区分分类）；「全部」保留主题色渐变
+            val selectedFill = option?.let { SolidColor(categoryColor(it)) }
+                ?: Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(
-                        if (isSelected) Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
+                        if (isSelected) selectedFill
                         else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                     )
                     .border(
@@ -1272,19 +1276,18 @@ private fun CategoryFilterBar(
 }
 
 
-/** 导出弹窗的分类胶囊：选中为主题色渐变填充（随主题切换） */
+/** 导出弹窗的分类胶囊：选中用该分类自己的颜色实底（未选中玻璃底） */
 @Composable
 private fun ExportCategoryChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val accent = AccentColorRepository.current
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(
-                if (selected) Brush.horizontalGradient(listOf(accent.primary, accent.gradientEnd))
+                if (selected) SolidColor(categoryColor(label))
                 else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             )
             .clickable(onClick = onClick)

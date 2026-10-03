@@ -42,7 +42,10 @@ import androidx.compose.ui.unit.sp
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.ui.components.glassBorder
 import com.zhaojin.reimbursement.ui.components.gradientBrush
+import com.zhaojin.reimbursement.ui.components.isDarkTheme
 import com.zhaojin.reimbursement.ui.theme.ExpenseRed
+import com.zhaojin.reimbursement.ui.theme.categoryColor
+import com.zhaojin.reimbursement.ui.theme.categoryTextColor
 import com.zhaojin.reimbursement.utils.BillPhotoStore
 
 @Composable
@@ -135,10 +138,10 @@ fun BillCard(
                             Text(
                                 text = bill.category,
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = categoryTextColor(bill.category, isDarkTheme()),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                    .background(categoryColor(bill.category).copy(alpha = 0.14f))
                                     .padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }

@@ -1,0 +1,35 @@
+package com.zhaojin.reimbursement.ui.theme
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+
+/**
+ * 分类配色：按分类名稳定映射到一组高区分度颜色（哈希取模）——
+ * 同一分类在任何界面、任何主题下颜色一致；新增分类自动获得配色，
+ * 与主题色无关，便于在账单卡片/筛选/选择器中区分不同分类。
+ * 色板取中等明度，浅色主题下可直接作文字色；深色主题下文字用
+ * [categoryTextColor] 提亮。
+ */
+private val CATEGORY_PALETTE = listOf(
+    Color(0xFFD94848), // 红
+    Color(0xFFE08A2E), // 橙
+    Color(0xFFC9A227), // 琥珀
+    Color(0xFF3F9142), // 绿
+    Color(0xFF2E9BA6), // 青
+    Color(0xFF4C6FE5), // 蓝
+    Color(0xFF9455D6), // 紫
+    Color(0xFFD45E8A), // 玫红
+    Color(0xFF7FA233), // 橄榄
+    Color(0xFF9A6B3F)  // 棕
+)
+
+/** 分类名 → 稳定颜色（同一分类永远同色） */
+fun categoryColor(name: String): Color {
+    if (name.isBlank()) return CATEGORY_PALETTE[0]
+    val idx = ((name.hashCode() % CATEGORY_PALETTE.size) + CATEGORY_PALETTE.size) % CATEGORY_PALETTE.size
+    return CATEGORY_PALETTE[idx]
+}
+
+/** 深色主题下把分类色提亮，保证作为文字可读 */
+fun categoryTextColor(name: String, dark: Boolean): Color =
+    if (dark) lerp(categoryColor(name), Color.White, 0.30f) else categoryColor(name)
