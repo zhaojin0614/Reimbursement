@@ -78,6 +78,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -175,7 +177,8 @@ fun AddBillScreen(
             editing?.amount?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: ""
         )
     }
-    var driver by remember { mutableStateOf(editing?.driver.orEmpty()) }
+    // TextFieldValue：点选联想项整体替换文字时需要显式把光标移到末尾
+    var driver by remember { mutableStateOf(TextFieldValue(editing?.driver.orEmpty())) }
     var plate by remember { mutableStateOf(editing?.plate.orEmpty()) }
     var region by remember { mutableStateOf(editing?.region.orEmpty()) }
     var showPlateBoard by remember { mutableStateOf(false) }
@@ -293,7 +296,7 @@ fun AddBillScreen(
             showDraftBanner = true
             title = draft.title
             amountText = draft.amountText
-            driver = draft.driver
+            driver = TextFieldValue(draft.driver)
             plate = draft.plate
             region = draft.region.takeIf { it.isNotBlank() && it in regionOptions } ?: ""
             category = draft.category.takeIf { it.isNotBlank() && it in categoryOptions } ?: category
@@ -313,7 +316,7 @@ fun AddBillScreen(
         // 自动保存：任一字段/照片变化后 500ms 落盘（effect 重启即防抖），
         // 进程被杀也不丢输入；表单清空则连草稿文件一并删除
         LaunchedEffect(
-            draftRestoreDone, category, selectedDate, driver, plate, region, title, amountText,
+            draftRestoreDone, category, selectedDate, driver.text, plate, region, title, amountText,
             stagedPhotos.joinToString("|") { it.name }
         ) {
             if (!draftRestoreDone) return@LaunchedEffect
@@ -321,7 +324,7 @@ fun AddBillScreen(
             val snapshot = BillDraftStore.Draft(
                 category = category,
                 dateIso = selectedDate.toString(),
-                driver = driver,
+                driver = driver.text,
                 plate = plate,
                 region = region,
                 title = title,
@@ -333,7 +336,7 @@ fun AddBillScreen(
     }
 
     // 有无待保存内容：决定退出时是否询问（分类/日期有默认值，不算内容）
-    fun hasDraftContent() = title.isNotBlank() || amountText.isNotBlank() || driver.isNotBlank() ||
+    fun hasDraftContent() = title.isNotBlank() || amountText.isNotBlank() || driver.text.isNotBlank() ||
         plate.isNotBlank() || region.isNotBlank() || stagedPhotos.isNotEmpty()
 
     // ── 驾驶员记忆：输入联想 + 车牌联动 ──────────────────────────────
@@ -354,7 +357,7 @@ fun AddBillScreen(
 
     // 联想候选：包含匹配（不区分大小写）；未输入时聚焦即列出全部，
     // 沿用记忆库顺序（最近使用在前）
-    val driverQuery = driver.trim()
+    val driverQuery = driver.text.trim()
     val driverSuggestions = driverMemory.filter {
         driverQuery.isEmpty() || it.name.contains(driverQuery, true)
     }
@@ -362,7 +365,7 @@ fun AddBillScreen(
     // 点选联想项：带出姓名；当前车牌为空或不是该驾驶员已记录的车牌时，
     // 自动填入其最近使用的车牌（已输入的合法组合不动，保存后会记入列表）
     fun applyDriverSuggestion(entry: DriverStore.DriverEntry) {
-        driver = entry.name
+        driver = TextFieldValue(entry.name, TextRange(entry.name.length))
         val current = plate.trim()
         if (entry.plates.isNotEmpty() &&
             (current.isEmpty() || entry.plates.none { it.equals(current, true) })
@@ -449,7 +452,7 @@ fun AddBillScreen(
                             stagedPhotos.clear()
                             title = ""
                             amountText = ""
-                            driver = ""
+                            driver = TextFieldValue("")
                             plate = ""
                             region = ""
                             category = categoryOptions.firstOrNull().orEmpty()
@@ -678,7 +681,7 @@ fun AddBillScreen(
 
             // 该驾驶员的历史车牌快捷切换（记录多于一个时才显示，点击直接填入）
             val currentDriverPlates = driverMemory
-                .firstOrNull { it.name == driver.trim() }?.plates.orEmpty()
+                .firstOrNull { it.name == driver.text.trim() }?.plates.orEmpty()
             if (currentDriverPlates.size > 1) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -813,7 +816,7 @@ fun AddBillScreen(
                     stagedPhotos.clear()
                     if (editing == null) ioScope.launch { BillDraftStore.clear(context) }
                     // 驾驶员-车牌记忆（去重、最近使用优先），异步落盘不阻塞保存
-                    val rememberedDriver = driver.trim()
+                    val rememberedDriver = driver.text.trim()
                     if (rememberedDriver.isNotEmpty()) {
                         val rememberedPlate = plate.trim()
                         ioScope.launch {
@@ -826,7 +829,7 @@ fun AddBillScreen(
                             amount = amt,
                             title = title.trim(),
                             category = category.trim(),
-                            driver = driver.trim(),
+                            driver = driver.text.trim(),
                             plate = plate.trim(),
                             region = region.trim(),
                             isIncome = false,
@@ -964,7 +967,7 @@ fun AddBillScreen(
                     val draft = BillDraftStore.Draft(
                         category = category,
                         dateIso = selectedDate.toString(),
-                        driver = driver,
+                        driver = driver.text,
                         plate = plate,
                         region = region,
                         title = title,
