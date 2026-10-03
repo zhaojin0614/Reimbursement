@@ -36,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
@@ -66,6 +67,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -89,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhaojin.reimbursement.BuildConfig
 import com.zhaojin.reimbursement.data.CategoryStore
+import com.zhaojin.reimbursement.data.DriverStore
 import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.ui.components.SoftCard
@@ -97,6 +100,7 @@ import com.zhaojin.reimbursement.ui.theme.AccentColor
 import com.zhaojin.reimbursement.ui.theme.AccentColorRepository
 import com.zhaojin.reimbursement.ui.theme.AccentVariant
 import com.zhaojin.reimbursement.ui.theme.ComponentGap
+import kotlinx.coroutines.launch
 
 /**
  * 设置页：主题色 / 日志 / 版本信息。
@@ -124,6 +128,13 @@ fun SettingsScreen(onBack: () -> Unit) {
     val regionOptions = remember {
         mutableStateListOf<String>().apply { addAll(RegionStore.load(context)) }
     }
+
+    // 驾驶员记忆库（添加账单时自动记录，此处增删改查）；文件读取异步，先空后填充
+    val driverEntries = remember { mutableStateListOf<DriverStore.DriverEntry>() }
+    LaunchedEffect(Unit) {
+        driverEntries.addAll(DriverStore.load(context))
+    }
+    val scope = rememberCoroutineScope()
 
     // 主色调：全局单例状态，选色后即时生效（读取处自动订阅重组）
     val currentAccent = AccentColorRepository.current
@@ -201,6 +212,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                 options = regionOptions,
                 onPersist = { RegionStore.save(context, it) },
                 onLog = { com.zhaojin.reimbursement.utils.AppLogger.log("设置", it) }
+            )
+
+            DriverMaintainGroup(
+                entries = driverEntries,
+                onPersist = { list ->
+                    scope.launch { DriverStore.save(context, list) }
+                },
+                onLog = { com.zhaojin.reimbursement.utils.AppLogger.log("驾驶员", it) }
             )
 
             SettingsGroup("日志") {
@@ -911,6 +930,335 @@ private fun OptionMaintainGroup(
                     onPersist(options)
                     onLog("删除${title}选项「$removed」，现有：${options.joinToString("、").ifEmpty { "（空）" }}")
                     Toast.makeText(context, "已删除「$removed」", Toast.LENGTH_SHORT).show()
+                    deleteIndex = null
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteIndex = null }) { Text("取消") }
+            }
+        )
+    }
+}
+
+/**
+ * 驾驶员记忆维护组：顶部搜索定位、行点击/编辑图标进编辑弹窗（改姓名、
+ * 增删车牌）、垃圾桶删除（二次确认）、底部输入新增；每次变更即时持久化。
+ * 记忆只影响添加页的输入联想与车牌联动，删除不影响已保存账单。
+ */
+@Composable
+private fun DriverMaintainGroup(
+    entries: SnapshotStateList<DriverStore.DriverEntry>,
+    onPersist: (List<DriverStore.DriverEntry>) -> Unit,
+    onLog: (String) -> Unit
+) {
+    val context = LocalContext.current
+    // 输入法弹出时把新增输入框滚进可视区（驾驶员多时它在屏幕下方）
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    var fieldFocused by remember { mutableStateOf(false) }
+    val fieldRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(imeBottom, fieldFocused) {
+        if (imeBottom > 0 && fieldFocused) fieldRequester.bringIntoView()
+    }
+    var query by remember { mutableStateOf("") }
+    var newText by remember { mutableStateOf("") }
+    var editIndex by remember { mutableStateOf<Int?>(null) }
+    var deleteIndex by remember { mutableStateOf<Int?>(null) }
+
+    val keyword = query.trim()
+    val filtered = if (keyword.isEmpty()) entries
+    else entries.filter { it.name.contains(keyword, true) }
+
+    SettingsGroup("驾驶员") {
+        // 关闭最小触控目标膨胀：图标按钮按 30dp 实际尺寸占位，子项行距更紧凑
+        CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
+            Text(
+                text = "添加账单时自动记忆驾驶员及其车牌，输入时可直接选用；删除不影响已保存账单",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp)
+            )
+            // 搜索框：驾驶员多时快速定位
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "搜索驾驶员",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+            }
+            // 列表（按搜索过滤；姓名 + 全部车牌）
+            if (filtered.isEmpty()) {
+                Text(
+                    text = if (keyword.isEmpty()) "暂无记录，添加账单时填写驾驶员即可自动记忆"
+                    else "没有匹配的驾驶员",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                )
+            }
+            filtered.forEach { entry ->
+                val index = entries.indexOfFirst { it.name == entry.name }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { editIndex = index }
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = entry.name,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (entry.plates.isNotEmpty()) {
+                            Text(
+                                text = entry.plates.joinToString("、"),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(onClick = { editIndex = index }, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "修改",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(onClick = { deleteIndex = index }, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "删除",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+            // 底部新增驾驶员（车牌留空，点行进编辑弹窗补充）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    BasicTextField(
+                        value = newText,
+                        onValueChange = { newText = it },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (newText.isEmpty()) {
+                                    Text(
+                                        text = "新增驾驶员姓名",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusEvent { fieldFocused = it.isFocused }
+                            .bringIntoViewRequester(fieldRequester)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    )
+                }
+                TextButton(onClick = {
+                    val name = newText.trim()
+                    when {
+                        name.isEmpty() -> Toast.makeText(context, "请输入姓名", Toast.LENGTH_SHORT).show()
+                        entries.any { it.name == name } ->
+                            Toast.makeText(context, "该驾驶员已存在", Toast.LENGTH_SHORT).show()
+                        else -> {
+                            entries.add(DriverStore.DriverEntry(name))
+                            onPersist(entries)
+                            onLog("新增驾驶员「$name」")
+                            newText = ""
+                            Toast.makeText(context, "已添加「$name」，点其所在行可补录车牌", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }) { Text("添加") }
+            }
+        }
+    }
+
+    // 编辑弹窗：改姓名 + 增删车牌
+    editIndex?.let { idx ->
+        val entry = entries.getOrNull(idx)
+        if (entry == null) {
+            editIndex = null
+        } else {
+            var editName by remember(entry) { mutableStateOf(entry.name) }
+            val editPlates = remember(entry) {
+                mutableStateListOf<String>().apply { addAll(entry.plates) }
+            }
+            var newPlate by remember(entry) { mutableStateOf("") }
+            GlassCompactDialog(
+                onDismissRequest = { editIndex = null },
+                title = "修改驾驶员",
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextField(
+                            value = editName,
+                            onValueChange = { editName = it },
+                            singleLine = true,
+                            label = { Text("姓名") },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent
+                            )
+                        )
+                        if (editPlates.isEmpty()) {
+                            Text(
+                                text = "暂无车牌，可在下方添加",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        editPlates.forEachIndexed { i, p ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = p,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { editPlates.removeAt(i) },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "移除车牌",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            TextField(
+                                value = newPlate,
+                                onValueChange = { newPlate = it },
+                                singleLine = true,
+                                label = { Text("添加车牌") },
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = {
+                                val p = sanitizePlateInput(newPlate)
+                                when {
+                                    p.isEmpty() -> Toast.makeText(context, "请输入有效车牌", Toast.LENGTH_SHORT).show()
+                                    editPlates.contains(p) ->
+                                        Toast.makeText(context, "该车牌已存在", Toast.LENGTH_SHORT).show()
+                                    else -> {
+                                        editPlates.add(p)
+                                        newPlate = ""
+                                    }
+                                }
+                            }) { Text("添加") }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val name = editName.trim()
+                        val dupIndex = entries.indexOfFirst { it.name == name }
+                        when {
+                            name.isEmpty() -> Toast.makeText(context, "请输入姓名", Toast.LENGTH_SHORT).show()
+                            dupIndex != -1 && dupIndex != idx ->
+                                Toast.makeText(context, "该驾驶员已存在", Toast.LENGTH_SHORT).show()
+                            else -> {
+                                val old = entries[idx]
+                                entries[idx] = DriverStore.DriverEntry(name, editPlates.toList())
+                                onPersist(entries)
+                                onLog(
+                                    "修改驾驶员「${old.name}」→「$name」：" +
+                                        "车牌[${old.plates.joinToString("、")}]→[${editPlates.joinToString("、")}]"
+                                )
+                                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                                editIndex = null
+                            }
+                        }
+                    }) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editIndex = null }) { Text("取消") }
+                }
+            )
+        }
+    }
+
+    // 删除驾驶员（二次确认）
+    deleteIndex?.let { idx ->
+        val name = entries.getOrNull(idx)?.name.orEmpty()
+        GlassCompactDialog(
+            onDismissRequest = { deleteIndex = null },
+            title = "删除驾驶员",
+            text = { Text("确定删除「$name」吗？添加账单时将不再联想该驾驶员，已保存账单不受影响。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val removed = entries.removeAt(idx)
+                    onPersist(entries)
+                    onLog("删除驾驶员「${removed.name}」，现有：${entries.joinToString("、") { it.name }.ifEmpty { "（空）" }}")
+                    Toast.makeText(context, "已删除「${removed.name}」", Toast.LENGTH_SHORT).show()
                     deleteIndex = null
                 }) { Text("删除") }
             },

@@ -82,6 +82,7 @@ import android.content.ClipboardManager
 import android.widget.Toast
 import com.zhaojin.reimbursement.data.BillEntity
 import com.zhaojin.reimbursement.data.CategoryStore
+import com.zhaojin.reimbursement.data.DriverStore
 import com.zhaojin.reimbursement.data.RegionStore
 import com.zhaojin.reimbursement.ui.components.GlassCompactDialog
 import com.zhaojin.reimbursement.utils.AppLogger
@@ -124,13 +125,14 @@ private val PLATE_KEY_ROWS = listOf(
 )
 
 /** 车牌总长上限：省份简称 1 位 + 序号最多 7 位 */
-private const val PLATE_MAX_LEN = 8
+internal const val PLATE_MAX_LEN = 8
 
 /**
  * 剪贴板文本 → 车牌可用字符：去空格与常见分隔符、全角转半角、
  * 字母统一大写，仅保留汉字（省份简称/学挂警港澳等）与字母数字，上限 8 位。
+ * （添加页粘贴与设置页维护车牌共用）
  */
-private fun sanitizePlateInput(raw: String): String {
+internal fun sanitizePlateInput(raw: String): String {
     val cleaned = raw.replace(Regex("[\\s·.\\-—_\\u3000\\u00A0]"), "")
     val sb = StringBuilder()
     for (ch in cleaned) {
@@ -331,6 +333,32 @@ fun AddBillScreen(
     fun hasDraftContent() = title.isNotBlank() || amountText.isNotBlank() || driver.isNotBlank() ||
         plate.isNotBlank() || region.isNotBlank() || stagedPhotos.isNotEmpty()
 
+    // ── 驾驶员记忆：输入联想 + 车牌联动 ──────────────────────────────
+    val driverMemory = remember { mutableStateListOf<DriverStore.DriverEntry>() }
+    LaunchedEffect(Unit) {
+        driverMemory.addAll(DriverStore.load(context))
+    }
+    // 选定联想项后收起列表，再次输入时重新弹出
+    var driverSuggestionsHidden by remember { mutableStateOf(false) }
+
+    // 联想候选：包含匹配（不区分大小写），沿用记忆库顺序（最近使用在前）
+    val driverQuery = driver.trim()
+    val driverSuggestions = if (driverQuery.isEmpty()) emptyList() else
+        driverMemory.filter { it.name.contains(driverQuery, true) }
+
+    // 点选联想项：带出姓名；当前车牌为空或不是该驾驶员已记录的车牌时，
+    // 自动填入其最近使用的车牌（已输入的合法组合不动，保存后会记入列表）
+    fun applyDriverSuggestion(entry: DriverStore.DriverEntry) {
+        driver = entry.name
+        val current = plate.trim()
+        if (entry.plates.isNotEmpty() &&
+            (current.isEmpty() || entry.plates.none { it.equals(current, true) })
+        ) {
+            plate = entry.plates.first()
+        }
+        driverSuggestionsHidden = true
+    }
+
     fun requestExit() {
         if (editing == null && hasDraftContent()) {
             showExitDialog = true
@@ -510,11 +538,14 @@ fun AddBillScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 第 2 行：驾驶员
+            // 第 2 行：驾驶员（输入时联想记忆库，点选自动带出车牌）
             TextField(
                 value = driver,
                 colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
-                onValueChange = { driver = it },
+                onValueChange = {
+                    driver = it
+                    driverSuggestionsHidden = false
+                },
                 label = { Text("驾驶员") },
                 textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Bold),
                 modifier = Modifier
@@ -523,6 +554,50 @@ fun AddBillScreen(
                     .bringIntoViewRequester(fieldRequesters.getValue(ImeField.Driver)),
                 singleLine = true
             )
+
+            // 驾驶员联想列表：点选联动车牌，右侧预览将填入的最近车牌
+            if (!driverSuggestionsHidden && driverSuggestions.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .border(glassBorder(), RoundedCornerShape(12.dp))
+                ) {
+                    driverSuggestions.take(5).forEach { entry ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { applyDriverSuggestion(entry) }
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = entry.name,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            entry.plates.firstOrNull()?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (driverSuggestions.size > 5) {
+                        Text(
+                            text = "还有 ${driverSuggestions.size - 5} 位，继续输入可缩小范围",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -588,6 +663,42 @@ fun AddBillScreen(
                 },
                 onLongPress = { pastePlateFromClipboard() }
             )
+
+            // 该驾驶员的历史车牌快捷切换（记录多于一个时才显示，点击直接填入）
+            val currentDriverPlates = driverMemory
+                .firstOrNull { it.name == driver.trim() }?.plates.orEmpty()
+            if (currentDriverPlates.size > 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    currentDriverPlates.forEach { candidate ->
+                        val selected = candidate.equals(plate.trim(), true)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    else MaterialTheme.colorScheme.surface
+                                )
+                                .border(glassBorder(), RoundedCornerShape(8.dp))
+                                .clickable { plate = candidate }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = candidate,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
 
             if (showPlateBoard) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -689,6 +800,14 @@ fun AddBillScreen(
                     val photosToSave = stagedPhotos.toList()
                     stagedPhotos.clear()
                     if (editing == null) ioScope.launch { BillDraftStore.clear(context) }
+                    // 驾驶员-车牌记忆（去重、最近使用优先），异步落盘不阻塞保存
+                    val rememberedDriver = driver.trim()
+                    if (rememberedDriver.isNotEmpty()) {
+                        val rememberedPlate = plate.trim()
+                        ioScope.launch {
+                            DriverStore.rememberUsage(context, rememberedDriver, rememberedPlate)
+                        }
+                    }
                     onSave(
                         BillEntity(
                             id = editing?.id ?: 0,
