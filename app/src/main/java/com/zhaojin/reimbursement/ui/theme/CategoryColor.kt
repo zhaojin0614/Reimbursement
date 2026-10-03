@@ -21,10 +21,15 @@ private val CATEGORY_PALETTE = listOf(
     Color(0xFF8D6E63)  // 棕
 )
 
-/** 分类名 → 稳定颜色（同一分类永远同色） */
+/** 分类名 → 稳定颜色（同一分类永远同色）。哈希先经 murmur finalizer 打散再取模，
+ *  避免个别分类名间直接哈希差恰好是色板大小的倍数而永远撞色 */
 fun categoryColor(name: String): Color {
     if (name.isBlank()) return CATEGORY_PALETTE[0]
-    val idx = ((name.hashCode() % CATEGORY_PALETTE.size) + CATEGORY_PALETTE.size) % CATEGORY_PALETTE.size
+    var h = name.hashCode()
+    h = h xor (h ushr 16)
+    h *= 0x45D9F3B
+    h = h xor (h ushr 16)
+    val idx = ((h % CATEGORY_PALETTE.size) + CATEGORY_PALETTE.size) % CATEGORY_PALETTE.size
     return CATEGORY_PALETTE[idx]
 }
 
