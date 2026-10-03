@@ -80,6 +80,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -778,14 +779,22 @@ fun BillScreen(
     }
 
     // ── 导出：按日时间段选择 ─────────────────────────────────────────────
-    // 跳转日期选择器：只放行有账单的日期（其余置灰），确定后切锚点窗口
+    // 跳转日期选择器：只放行有账单的日期（其余置灰），确定后切锚点窗口；
+    // 年份列表截至今年、月份视图翻过当月立即弹回（M3 无原生最大日期限制）
     if (showJumpPicker) {
         val today = remember { LocalDate.now() }
+        val currentMonthStart = remember { today.withDayOfMonth(1) }
         val jumpPickerState = rememberDatePickerState(
-            initialSelectedDateMillis = (jumpAnchor ?: LocalDate.now())
+            initialSelectedDateMillis = (jumpAnchor ?: today)
                 .atStartOfDay(ZoneOffset.UTC)
                 .toInstant()
                 .toEpochMilli(),
+            initialDisplayedMonthMillis = (jumpAnchor ?: today)
+                .withDayOfMonth(1)
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+                .toEpochMilli(),
+            yearRange = 2000..today.year,
             selectableDates = object : SelectableDates {
                 // 无账单的日期不可选；null=集合未就绪时退回「不晚于今天」
                 override fun isSelectableDate(utcTimeMillis: Long): Boolean {
@@ -805,6 +814,21 @@ fun BillScreen(
                 }
             }
         )
+
+        // 月份视图禁看未来：显示月份越过当月就弹回（无账单的未来月份本就全灰）
+        LaunchedEffect(jumpPickerState) {
+            snapshotFlow { jumpPickerState.displayedMonthMillis }
+                .collect { millis ->
+                    val displayed = Instant.ofEpochMilli(millis)
+                        .atZone(ZoneOffset.UTC).toLocalDate().withDayOfMonth(1)
+                    if (displayed.isAfter(currentMonthStart)) {
+                        jumpPickerState.displayedMonthMillis = currentMonthStart
+                            .atStartOfDay(ZoneOffset.UTC)
+                            .toInstant()
+                            .toEpochMilli()
+                    }
+                }
+        }
         DatePickerDialog(
             onDismissRequest = { showJumpPicker = false },
             confirmButton = {
