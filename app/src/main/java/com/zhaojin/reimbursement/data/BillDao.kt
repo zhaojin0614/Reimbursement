@@ -96,6 +96,10 @@ interface BillDao {
     )
     fun getBillsAtOrBefore(beforeMillis: Long, category: String?, limit: Int): Flow<List<BillEntity>>
 
+    /** 全部有账单的日期（本地时区，yyyy-MM-dd 去重），跳转日期选择器只放行这些天 */
+    @Query("SELECT DISTINCT date(timestamp / 1000, 'unixepoch', 'localtime') FROM bills")
+    suspend fun getDistinctBillDates(): List<String>
+
     @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0 AND (:category IS NULL OR category = :category)")
     fun getTotalExpense(category: String?): Flow<Double?>
 

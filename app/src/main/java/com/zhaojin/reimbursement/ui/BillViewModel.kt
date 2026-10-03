@@ -214,6 +214,15 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         else _limit.value += PAGE_SIZE
     }
 
+    /**
+     * 有账单的日期集合（epochDay），打开跳转选择器前查询一次：
+     * 选择器据此把无账单的日期置灰不可选。
+     */
+    suspend fun loadBillDaySet(): Set<Long> =
+        billDao.getDistinctBillDates().mapNotNull {
+            runCatching { java.time.LocalDate.parse(it).toEpochDay() }.getOrNull()
+        }.toSet()
+
     val totalExpense: StateFlow<Double> = _selectedCategory.flatMapLatest { category ->
         billDao.getTotalExpense(category).map { it ?: 0.0 }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)

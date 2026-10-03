@@ -170,6 +170,8 @@ fun BillScreen(
     var showJumpPicker by remember { mutableStateOf(false) }
     // 跳转后首次窗口就绪时定位一次（防扩页导致的 size 变化反复拉回锚点）
     var pendingJumpScroll by remember { mutableStateOf(false) }
+    // 有账单的日期集合（epochDay）：打开选择器前加载，空日期置灰不可选
+    var billDays by remember { mutableStateOf<Set<Long>?>(null) }
 
     // ── 账单图片（多张）：拍照 / 相册 / 查看器状态 ──────────────────────
     // 无图图标点击 → sourcePickerFor（选择来源）；有图图标点击 → viewerBill
@@ -446,7 +448,13 @@ fun BillScreen(
                                 )
                             }
                         } else {
-                            IconButton(onClick = { showJumpPicker = true }) {
+                            IconButton(onClick = {
+                                // 先取有账单的日期集合（选择器据此置灰空日期），再弹窗
+                                scope.launch {
+                                    billDays = viewModel.loadBillDaySet()
+                                    showJumpPicker = true
+                                }
+                            }) {
                                 Icon(
                                     imageVector = Icons.Default.DateRange,
                                     contentDescription = "跳转到日期",
@@ -772,19 +780,31 @@ fun BillScreen(
     }
 
     // ── 导出：按日时间段选择 ─────────────────────────────────────────────
-    // 跳转日期选择器（不可选未来；确定后切锚点窗口，由定位 effect 滚到目标日）
+    // 跳转日期选择器：只放行有账单的日期（其余置灰），确定后切锚点窗口
     if (showJumpPicker) {
-        val todayMillis = remember {
-            LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        }
+        val today = remember { LocalDate.now() }
         val jumpPickerState = rememberDatePickerState(
             initialSelectedDateMillis = (jumpAnchor ?: LocalDate.now())
                 .atStartOfDay(ZoneOffset.UTC)
                 .toInstant()
                 .toEpochMilli(),
             selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
-                    utcTimeMillis <= todayMillis
+                // 无账单的日期不可选；null=集合未就绪时退回「不晚于今天」
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                    val day = Instant.ofEpochMilli(utcTimeMillis)
+                        .atZone(ZoneOffset.UTC).toLocalDate()
+                    if (day > today) return false
+                    val days = billDays ?: return true
+                    return days.contains(day.toEpochDay())
+                }
+
+                // 年视图同样置灰：整年无账单的年份不可选
+                override fun isSelectableYear(year: Int): Boolean {
+                    val days = billDays ?: return true
+                    return days.any {
+                        java.time.LocalDate.ofEpochDay(it).year == year
+                    }
+                }
             }
         )
         DatePickerDialog(
