@@ -24,7 +24,26 @@ object DriverStore {
 
     private const val FILE_NAME = "drivers.txt"
     private const val MAGIC = "drivers_v1"
+    private const val PREFS = "driver_store"
+    private const val KEY_MIGRATED = "migrated_from_bills_v1"
     private val ioMutex = Mutex()
+
+    /**
+     * 一次性迁移：把历史账单的驾驶员/车牌导入记忆库（幂等，完成后记入
+     * SharedPreferences 不再执行）。账单按时间升序回放，最近的排最前；
+     * 迁移前已存在的记忆（新功能上线后保存的）整体比历史账单新，合并时
+     * 保持其优先。返回 null=已迁移过；否则返回迁移后记忆库总条数。
+     */
+    suspend fun migrateFromBills(context: Context, bills: List<BillEntity>): Int? = withContext(Dispatchers.IO) {
+        ioMutex.withLock {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_MIGRATED, false)) return@withContext null
+            val merged = mergeMigratedPure(read(context), migrateFromBillsPure(bills))
+            write(context, merged)
+            prefs.edit().putBoolean(KEY_MIGRATED, true).apply()
+            merged.size
+        }
+    }
 
     suspend fun load(context: Context): List<DriverEntry> = withContext(Dispatchers.IO) {
         ioMutex.withLock { read(context) }
@@ -74,6 +93,33 @@ internal fun rememberUsagePure(
     val plates = existing?.plates.orEmpty()
     val newPlates = if (p.isEmpty()) plates else listOf(p) + plates.filter { it != p }
     return listOf(DriverStore.DriverEntry(n, newPlates)) + entries.filter { it.name != n }
+}
+
+/** 纯函数：历史账单按时间升序回放（同刻按 id 升序）构建记忆；驾驶员空的账单跳过 */
+internal fun migrateFromBillsPure(bills: List<BillEntity>): List<DriverStore.DriverEntry> {
+    var entries = emptyList<DriverStore.DriverEntry>()
+    bills.sortedWith(compareBy({ it.timestamp }, { it.id })).forEach { bill ->
+        entries = rememberUsagePure(entries, bill.driver, bill.plate)
+    }
+    return entries
+}
+
+/**
+ * 纯函数：把迁移前已存在的记忆（整体新于历史账单，首位最新）合并进历史
+ * 迁移结果——条目逆序、各自车牌逆序回放，保证现有条目的最近车牌仍居首位。
+ */
+internal fun mergeMigratedPure(
+    current: List<DriverStore.DriverEntry>,
+    history: List<DriverStore.DriverEntry>
+): List<DriverStore.DriverEntry> {
+    var result = history
+    current.reversed().forEach { entry ->
+        result = rememberUsagePure(result, entry.name, "")
+        entry.plates.reversed().forEach { p ->
+            result = rememberUsagePure(result, entry.name, p)
+        }
+    }
+    return result
 }
 
 /** 纯函数：记录列表 → 行式文本。姓名来自 singleLine 输入，不含换行 */

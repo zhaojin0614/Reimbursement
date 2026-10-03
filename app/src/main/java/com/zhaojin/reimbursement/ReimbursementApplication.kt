@@ -2,6 +2,7 @@ package com.zhaojin.reimbursement
 
 import android.app.Application
 import com.zhaojin.reimbursement.data.AppDatabase
+import com.zhaojin.reimbursement.data.DriverStore
 import com.zhaojin.reimbursement.utils.AppLogger
 import com.zhaojin.reimbursement.utils.BillDraftStore
 import com.zhaojin.reimbursement.utils.BillPhotoStore
@@ -22,6 +23,13 @@ class ReimbursementApplication : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             val keep = BillDraftStore.registeredPhotoNames(this@ReimbursementApplication)
             BillPhotoStore.sweepPending(this@ReimbursementApplication, keep)
+            // 历史账单的驾驶员/车牌一次性迁入记忆库（幂等，仅首次执行）
+            DriverStore.migrateFromBills(
+                this@ReimbursementApplication,
+                database.billDao().getAllBillsOnce()
+            )?.let { count ->
+                AppLogger.log("驾驶员", "历史账单驾驶员迁移完成，共 $count 位")
+            }
             BillPhotoStore.migrateCompressAll(this@ReimbursementApplication)?.let { (count, before, after) ->
                 if (count > 0) {
                     AppLogger.log(
