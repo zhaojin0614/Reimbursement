@@ -678,18 +678,45 @@ fun BillScreen(
                         }
                     }
 
-                    // 跳转定位：锚点窗口首次就绪后，把目标日（无账单则其后最近
-                    // 一天）滚到视口顶部；只执行一次，之后扩页不拉回
+                    // 跳转定位：锚点窗口首次就绪后定位一次（之后扩页不拉回）。
+                    // 窗口本身总是「离目标最近的账单」，这里只负责落位与提示：
+                    // 目标当天有账单 → 静默定位；当天没有 → 定位到最近的账单日
+                    // 并提示；目标比最新/最早记录还远 → 回到窗口顶（最新页顶/
+                    // 最早一批账单）并说明
                     LaunchedEffect(jumpAnchor, pendingJumpScroll, bills.size) {
                         if (!pendingJumpScroll || bills.isEmpty()) return@LaunchedEffect
                         val target = jumpAnchor ?: run {
                             pendingJumpScroll = false
                             return@LaunchedEffect
                         }
+                        val newest = groupedBills.first().first
+                        val oldest = groupedBills.last().first
                         val idx = groupedBills.indexOfFirst { it.first <= target }
-                        listState.scrollToItem(if (idx >= 0) idx else 0)
-                        if (idx < 0) {
-                            Toast.makeText(context, "该日期附近暂无账单", Toast.LENGTH_SHORT).show()
+                        when {
+                            idx >= 0 -> {
+                                listState.scrollToItem(idx)
+                                val hit = groupedBills[idx].first
+                                if (hit != target) {
+                                    Toast.makeText(
+                                        context, "$target 当天没有账单，已定位到附近的 $hit",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                            target > newest -> {
+                                listState.scrollToItem(0)
+                                Toast.makeText(
+                                    context, "$target 尚无账单，已回到最新", Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            else -> {
+                                // 目标早于全库最早记录，窗口即最早的一批账单
+                                listState.scrollToItem(0)
+                                Toast.makeText(
+                                    context, "$target 早于最早记录，已跳到最早的 $oldest",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
                         pendingJumpScroll = false
                     }
