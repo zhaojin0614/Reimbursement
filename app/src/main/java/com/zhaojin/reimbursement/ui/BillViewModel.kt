@@ -145,29 +145,74 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         val category: String?
     )
 
+    /** 跳转锚点窗口：锚点日 + 两侧各自的扩载页数 */
+    private data class JumpWindow(
+        val anchor: java.time.LocalDate?,
+        val newerLimit: Int,
+        val olderLimit: Int
+    )
+
+    // 跳转日期浏览：锚点非空时列表以该日为中心双向取页（见 bills）
+    private val _jumpAnchor = MutableStateFlow<java.time.LocalDate?>(null)
+    val jumpAnchor: StateFlow<java.time.LocalDate?> = _jumpAnchor.asStateFlow()
+    private val _newerLimit = MutableStateFlow(PAGE_SIZE)
+    private val _olderLimit = MutableStateFlow(PAGE_SIZE)
+
     /**
-     * 记账页账单列表：统一按时间倒序条数分页（LIMIT）。
-     * 不用时间窗口切「全部」视图——窗口外补记的历史账单会在「全部」里
-     * 隐身（而筛选视图能看到），条数分页没有此不一致问题。
+     * 记账页账单列表，三种模式（优先级从高到低）：
+     * 1. 搜索：关键词命中各字段，条数分页；
+     * 2. 跳转锚点窗口：以锚点日为界，向下取「当天及更早」最近一页、向上取
+     *    「更新」最近一页后拼接（倒序）——跳转久远日期时只查附近数据；
+     *    滚到两端由 [loadNewer]/[loadMore] 分别扩页；
+     * 3. 默认：按时间倒序条数分页。
      */
     val bills: StateFlow<List<BillEntity>> = combine(
-        _limit, _searchQuery, _selectedCategory, ::BillQuery
-    ).flatMapLatest { q ->
+        combine(_limit, _searchQuery, _selectedCategory, ::BillQuery),
+        combine(_jumpAnchor, _newerLimit, _olderLimit, ::JumpWindow)
+    ) { q, jump -> q to jump }.flatMapLatest { (q, jump) ->
+        val anchor = jump.anchor
         when {
-            // 搜索优先：关键词命中标题/金额文本
+            // 搜索优先：关键词命中各字段
             q.query.isNotBlank() ->
                 billDao.searchBills(q.query.trim(), null, q.category, q.limit)
+            anchor != null -> {
+                val zone = java.time.ZoneId.systemDefault()
+                val dayStart = anchor.atStartOfDay(zone).toInstant().toEpochMilli()
+                val dayEnd = anchor.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+                combine(
+                    billDao.getBillsNewerThan(dayEnd, q.category, jump.newerLimit),
+                    billDao.getBillsAtOrBefore(dayStart, q.category, jump.olderLimit)
+                ) { newer, older -> newer.asReversed() + older }
+            }
             else -> billDao.getBillsFiltered(null, q.category, q.limit)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 滚动到底部加载更多：增大条数分页 */
-    fun loadMore() {
-        _limit.value += PAGE_SIZE
+    /** 跳转浏览某日期：列表切到以该日为中心的窗口（当天及更早一页 + 更新一页） */
+    fun jumpToDate(date: java.time.LocalDate) {
+        _jumpAnchor.value = date
+        _newerLimit.value = PAGE_SIZE
+        _olderLimit.value = PAGE_SIZE
+        _limit.value = PAGE_SIZE
     }
 
-    /** 已加载数达到当前 LIMIT 上限时可能还有更多（跳转日期扩载用） */
-    fun canLoadMore(): Boolean = bills.value.size >= _limit.value
+    /** 回到最新：清除跳转锚点，恢复最新一页起的默认浏览 */
+    fun clearJumpAnchor() {
+        if (_jumpAnchor.value == null) return
+        _jumpAnchor.value = null
+        _limit.value = PAGE_SIZE
+    }
+
+    /** 锚点窗口向上（更新方向）扩一页；默认模式所有更新数据已在列表中，忽略 */
+    fun loadNewer() {
+        if (_jumpAnchor.value != null) _newerLimit.value += PAGE_SIZE
+    }
+
+    /** 滚动到底部加载更多：锚点模式扩更早方向，默认模式扩条数分页 */
+    fun loadMore() {
+        if (_jumpAnchor.value != null) _olderLimit.value += PAGE_SIZE
+        else _limit.value += PAGE_SIZE
+    }
 
     val totalExpense: StateFlow<Double> = _selectedCategory.flatMapLatest { category ->
         billDao.getTotalExpense(category).map { it ?: 0.0 }

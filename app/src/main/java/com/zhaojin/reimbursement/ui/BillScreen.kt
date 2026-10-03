@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
@@ -164,9 +165,11 @@ fun BillScreen(
     var showSearch by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
 
-    // 跳转到指定日期：非空时由列表处的 LaunchedEffect 定位（必要时逐页扩载）
-    var jumpTargetDate by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    // 跳转到指定日期：锚点窗口模式（查那天附近两页，滚动两端按需扩页）
+    val jumpAnchor by viewModel.jumpAnchor.collectAsState()
     var showJumpPicker by remember { mutableStateOf(false) }
+    // 跳转后首次窗口就绪时定位一次（防扩页导致的 size 变化反复拉回锚点）
+    var pendingJumpScroll by remember { mutableStateOf(false) }
 
     // ── 账单图片（多张）：拍照 / 相册 / 查看器状态 ──────────────────────
     // 无图图标点击 → sourcePickerFor（选择来源）；有图图标点击 → viewerBill
@@ -492,18 +495,26 @@ fun BillScreen(
                         modifier = Modifier.padding(bottom = 88.dp),
                         horizontalAlignment = Alignment.End
                     ) {
-                        // 返回顶部：滚过 5 项后滑入
+                        // 返回顶部：滚过 5 项后滑入；跳转锚点模式常驻，
+                        // 点击清除锚点回到最新
                         AnimatedVisibility(
-                            visible = showScrollToTop,
+                            visible = showScrollToTop || jumpAnchor != null,
                             enter = fadeIn() + slideInVertically { it },
                             exit = fadeOut() + slideOutVertically { it }
                         ) {
                             SoftFab(
-                                icon = Icons.Default.ArrowUpward,
-                                contentDescription = stringResource(R.string.scroll_to_top),
+                                icon = if (jumpAnchor != null) Icons.Default.VerticalAlignTop
+                                else Icons.Default.ArrowUpward,
+                                contentDescription = if (jumpAnchor != null) "回到最新"
+                                else stringResource(R.string.scroll_to_top),
                                 onClick = {
                                     scope.launch {
-                                        listState.animateScrollToItem(index = 0)
+                                        if (jumpAnchor != null) {
+                                            viewModel.clearJumpAnchor()
+                                            listState.scrollToItem(index = 0)
+                                        } else {
+                                            listState.animateScrollToItem(index = 0)
+                                        }
                                     }
                                 },
                                 modifier = Modifier.padding(bottom = 12.dp)
@@ -667,35 +678,28 @@ fun BillScreen(
                         }
                     }
 
-                    // 跳转日期定位：目标日在已加载分页内直接跳；更早则逐页扩载
-                    // （bills.size 变化重新触发本 effect），直到找到或确认到底；
-                    // 比最新记录还新的日期回到顶部并提示
-                    LaunchedEffect(jumpTargetDate, bills.size) {
-                        val target = jumpTargetDate ?: return@LaunchedEffect
-                        val newest = groupedBills.first().first
-                        val oldest = groupedBills.last().first
-                        when {
-                            target > newest -> {
-                                listState.scrollToItem(0)
-                                Toast.makeText(
-                                    context, "$target 尚无账单，已回到最新", Toast.LENGTH_SHORT
-                                ).show()
-                                jumpTargetDate = null
-                            }
-                            target < oldest && viewModel.canLoadMore() -> viewModel.loadMore()
-                            else -> {
-                                val idx = groupedBills.indexOfFirst { it.first == target }
-                                if (idx >= 0) {
-                                    listState.scrollToItem(idx)
-                                } else {
-                                    listState.scrollToItem(groupedBills.lastIndex)
-                                    Toast.makeText(
-                                        context, "没有更早的账单，已跳到最早记录 $oldest", Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                jumpTargetDate = null
-                            }
+                    // 跳转定位：锚点窗口首次就绪后，把目标日（无账单则其后最近
+                    // 一天）滚到视口顶部；只执行一次，之后扩页不拉回
+                    LaunchedEffect(jumpAnchor, pendingJumpScroll, bills.size) {
+                        if (!pendingJumpScroll || bills.isEmpty()) return@LaunchedEffect
+                        val target = jumpAnchor ?: run {
+                            pendingJumpScroll = false
+                            return@LaunchedEffect
                         }
+                        val idx = groupedBills.indexOfFirst { it.first <= target }
+                        listState.scrollToItem(if (idx >= 0) idx else 0)
+                        if (idx < 0) {
+                            Toast.makeText(context, "该日期附近暂无账单", Toast.LENGTH_SHORT).show()
+                        }
+                        pendingJumpScroll = false
+                    }
+
+                    // 锚点窗口：滚近列表顶部时向更新方向扩一页（非锚点模式内部忽略）
+                    val shouldLoadNewer by remember {
+                        derivedStateOf { listState.firstVisibleItemIndex <= 1 }
+                    }
+                    LaunchedEffect(shouldLoadNewer) {
+                        if (shouldLoadNewer) viewModel.loadNewer()
                     }
                 }
             }
@@ -741,13 +745,13 @@ fun BillScreen(
     }
 
     // ── 导出：按日时间段选择 ─────────────────────────────────────────────
-    // 跳转日期选择器（不可选未来；确定后由列表处的定位 effect 接管）
+    // 跳转日期选择器（不可选未来；确定后切锚点窗口，由定位 effect 滚到目标日）
     if (showJumpPicker) {
         val todayMillis = remember {
             LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         }
         val jumpPickerState = rememberDatePickerState(
-            initialSelectedDateMillis = (jumpTargetDate ?: LocalDate.now())
+            initialSelectedDateMillis = (jumpAnchor ?: LocalDate.now())
                 .atStartOfDay(ZoneOffset.UTC)
                 .toInstant()
                 .toEpochMilli(),
@@ -761,9 +765,10 @@ fun BillScreen(
             confirmButton = {
                 TextButton(onClick = {
                     jumpPickerState.selectedDateMillis?.let { millis ->
-                        jumpTargetDate = Instant.ofEpochMilli(millis)
-                            .atZone(ZoneOffset.UTC)
-                            .toLocalDate()
+                        viewModel.jumpToDate(
+                            Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                        )
+                        pendingJumpScroll = true
                     }
                     showJumpPicker = false
                 }) { Text("跳转") }

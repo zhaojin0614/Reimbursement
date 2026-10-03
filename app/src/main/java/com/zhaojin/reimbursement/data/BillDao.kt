@@ -72,6 +72,30 @@ interface BillDao {
     )
     fun searchBills(query: String, type: Boolean?, category: String?, limit: Int): Flow<List<BillEntity>>
 
+    /** 锚点窗口：某时刻之后（不含）离它最近的 limit 条（时间正序），跳转日期向新方向扩页用 */
+    @Query(
+        """
+        SELECT * FROM bills
+        WHERE timestamp > :afterMillis
+        AND (:category IS NULL OR category = :category)
+        ORDER BY timestamp ASC, id ASC
+        LIMIT :limit
+        """
+    )
+    fun getBillsNewerThan(afterMillis: Long, category: String?, limit: Int): Flow<List<BillEntity>>
+
+    /** 锚点窗口：某时刻（含）及更早的离它最近的 limit 条（时间倒序），跳转定位与向旧方向扩页用 */
+    @Query(
+        """
+        SELECT * FROM bills
+        WHERE timestamp <= :beforeMillis
+        AND (:category IS NULL OR category = :category)
+        ORDER BY timestamp DESC, id ASC
+        LIMIT :limit
+        """
+    )
+    fun getBillsAtOrBefore(beforeMillis: Long, category: String?, limit: Int): Flow<List<BillEntity>>
+
     @Query("SELECT SUM(amount) FROM bills WHERE isIncome = 0 AND (:category IS NULL OR category = :category)")
     fun getTotalExpense(category: String?): Flow<Double?>
 
