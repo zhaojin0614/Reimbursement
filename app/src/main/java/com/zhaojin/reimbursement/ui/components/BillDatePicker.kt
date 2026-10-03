@@ -1,22 +1,26 @@
 package com.zhaojin.reimbursement.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -92,6 +96,9 @@ fun BillDatePickerDialog(
     var pickedDay by remember {
         mutableStateOf(initialDate.takeIf { isSelectable(it) })
     }
+    // 年/月快跳面板：jumpYear 为面板内临时选中的年份
+    var showJumpPanel by remember { mutableStateOf(false) }
+    var jumpYear by remember { mutableStateOf(initialView.year) }
 
     val viewMonthKey = monthKeyOf(LocalDate.of(viewYear, viewMonth, 1))
     fun stepMonth(delta: Int) {
@@ -122,42 +129,28 @@ fun BillDatePickerDialog(
                         )
                     }
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        var yearMenu by remember { mutableStateOf(false) }
-                        TextButton(onClick = { yearMenu = true }) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    jumpYear = viewYear
+                                    showJumpPanel = !showJumpPanel
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
                                 text = "${viewYear}年${viewMonth}月",
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = if (showJumpPanel) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
                             )
-                        }
-                        DropdownMenu(
-                            expanded = yearMenu,
-                            onDismissRequest = { yearMenu = false },
-                            modifier = Modifier.heightIn(max = 300.dp)
-                        ) {
-                            years.forEach { year ->
-                                DropdownMenuItem(
-                                    text = { Text("${year}年") },
-                                    modifier = Modifier.height(38.dp),
-                                    onClick = {
-                                        yearMenu = false
-                                        viewYear = year
-                                        // 集合模式：跳该年第一个有可选日期的月份
-                                        val months = selectableDays
-                                            ?.map { monthKeyOf(LocalDate.ofEpochDay(it)) }
-                                            ?.filter { it / 12 == year }
-                                            ?.toSet()
-                                            .orEmpty()
-                                        if (months.isNotEmpty()) {
-                                            viewMonth = months.min() % 12 + 1
-                                        } else if (year == maxDate.year) {
-                                            viewMonth = maxDate.monthValue
-                                        } else {
-                                            viewMonth = 1
-                                        }
-                                    }
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "选择年月",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                     IconButton(
@@ -171,6 +164,95 @@ fun BillDatePickerDialog(
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                         )
                     }
+                }
+
+                // ── 年/月快跳面板：年份横滑 chips + 月份格子 ───────────
+                if (showJumpPanel) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "年份",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        years.forEach { year ->
+                            val selected = year == jumpYear
+                            Text(
+                                text = "${year}年",
+                                fontSize = 12.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                    .clickable { jumpYear = year }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "月份",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                    // 该年该月是否存在可选日期（集合模式逐月判定）
+                    fun monthSelectable(year: Int, month: Int): Boolean {
+                        val key = year * 12 + month - 1
+                        if (key < minMonthKey || key > maxMonthKey) return false
+                        if (selectableDays == null) return true
+                        return selectableDays.any { monthKeyOf(LocalDate.ofEpochDay(it)) == key }
+                    }
+                    listOf(1..6, 7..12).forEach { months ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            months.forEach { month ->
+                                val selected = jumpYear == viewYear && month == viewMonth
+                                val selectable = monthSelectable(jumpYear, month)
+                                Text(
+                                    text = "${month}月",
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = when {
+                                        selected -> MaterialTheme.colorScheme.primary
+                                        selectable -> MaterialTheme.colorScheme.onSurface
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 3.dp, vertical = 3.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            when {
+                                                selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                selectable -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                                else -> Color.Transparent
+                                            }
+                                        )
+                                        .then(
+                                            if (selectable) Modifier.clickable {
+                                                viewYear = jumpYear
+                                                viewMonth = month
+                                                showJumpPanel = false
+                                            } else Modifier
+                                        )
+                                        .padding(vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
                 // 星期头（周一起始）
