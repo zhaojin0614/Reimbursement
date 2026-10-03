@@ -183,11 +183,12 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     .onEach { _windowReady.value = false }
             anchor != null -> {
                 val zone = java.time.ZoneId.systemDefault()
-                val dayStart = anchor.atStartOfDay(zone).toInstant().toEpochMilli()
+                // 分界点=当天最后一毫秒：更早侧含当天全部账单，更新侧不含当天
+                // （分界取当天 00:00 会在两条查询间漏掉目标日白天的账单）
                 val dayEnd = anchor.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
                 combine(
                     billDao.getBillsNewerThan(dayEnd, q.category, jump.newerLimit),
-                    billDao.getBillsAtOrBefore(dayStart, q.category, jump.olderLimit)
+                    billDao.getBillsAtOrBefore(dayEnd, q.category, jump.olderLimit)
                 ) { newer, older -> newer.asReversed() + older }
                     .onEach { _windowReady.value = true }
             }
